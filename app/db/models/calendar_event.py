@@ -19,7 +19,6 @@ class CalendarEvent(Base):
     event_date = columns.day()
     start_at = columns.moment()
     end_at = columns.moment()
-    is_all_day = columns.flag()
     mode = columns.text(20)
     venue = columns.text(200)
     online_platform = columns.text(200)

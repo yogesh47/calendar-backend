@@ -12,9 +12,11 @@ docs/
 ├── 04-auth-login.md         do hardcoded user, JWT, /auth/login
 ├── 05-run-and-verify.md     sab chalana aur jaanchna
 ├── 06-commands-reference.md har flag ka matlab
-└── tables/
-    ├── calendar_event.md    har column kyun hai
-    └── columns.md           shared column helpers
+├── tables/
+│   ├── calendar_event.md    har column kyun hai
+│   └── columns.md           shared column helpers
+└── flows/
+    └── tpo-event.md         TPO kya karta hai, kya hota hai
 ```
 
 ## Abhi tak kya ban chuka hai

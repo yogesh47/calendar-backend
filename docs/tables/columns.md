@@ -101,7 +101,7 @@ karna bhool nahi sakta.
 
 | Helper | Deta hai | Kitni jagah | Kahan |
 |---|---|---|---|
-| `flag(default=False)` | `Boolean, nullable=False` | 2 | `event.is_all_day`, `settings.deadline_reminder_same_day` |
+| `flag(default=False)` | `Boolean, nullable=False` | 1 | `settings.deadline_reminder_same_day` |
 | `count(default=0)` | `Integer, nullable=False` | 4 | `settings` ke chaaron number |
 
 **`flag` aur `count` par `nullable=True` ka option nahi diya:** haan/naa ka

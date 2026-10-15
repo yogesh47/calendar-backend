@@ -19,13 +19,13 @@ class CalendarEvent(Base):
     ...
 ```
 
-## 25 column, 8 sawaal
+## 24 column, 8 sawaal
 
 | Sawaal | Columns |
 |---|---|
 | Ye row hai kiski | `event_id`, `org_id` |
 | Hai kya | `event_type`, `title`, `company_id` |
-| Kab hai | `event_date`, `start_at`, `end_at`, `is_all_day` |
+| Kab hai | `event_date`, `start_at`, `end_at` |
 | Kahan hai | `mode`, `venue`, `online_platform` |
 | Kis job se juda hai | `linked_job_*` (4) |
 | Aur kya likha hai | `description` |
@@ -61,7 +61,6 @@ class CalendarEvent(Base):
 | `event_date` | `columns.day()` | `Date` hai, `timestamp` nahi — all-day cheez ka din timezone badalne par khisakna nahi chahiye (design doc, Date aur time wala hissa) |
 | `start_at` | `columns.moment()` | Deadline aur My Reminder par time hota hi nahi, isliye nullable (BRD, line 205) |
 | `end_at` | `columns.moment()` | Start se baad me hona chahiye — ye rule Pydantic me lagega, DB me nahi (BRD, line 206) |
-| `is_all_day` | `columns.flag()` | Deadline "Date only (all-day)" hai aur Week view ki all-day row me dikhti hai (BRD, line 238) |
 
 ## 4. Kahan hai
 
@@ -132,6 +131,7 @@ Dono me `org_id` pehle hai, kyunki har query usi se shuru hoti hai.
 | Audience (courses, batches, departments) | `calendar_event_audience` | Ek event ka ek hi row, aur teeno ARRAY hain — event row har baar bhaari ho jaati |
 | Kis-kis student ko bheja | `calendar_event_recipient` | Publish par list freeze hoti hai; `removed` state hi "No longer applicable" dikhane ka zariya hai |
 | My Reminder | `calendar_reminder` | BRD me ye event type hai (BRD, line 240), par iska audience, mode, venue kuch nahi hota (BRD, line 343) — isliye alag table |
+| All-day hai ya nahi | `event_type` | Drawer me "All day" ka koi option hai hi nahi — TPO sirf type chunta hai, aur sirf `Deadline` par time poochha nahi jaata. Alag column rakhte to wo `event_type` ko dekh kar hi bharna padta, aur ek jagah bhool jaane par row jhooth bolne lagti |
 | "X students notified" ka number | `calendar_event_recipient` | Us event ki recipient rows gin lo — alag column rakhne par wo count aur asli list alag ho sakte the |
 | Application Deadline | kahin nahi | Jobs API ki expiry date se derive hoti hai — design ka pehla na-badalne-wala faisla |
 | Max length ke rules (120, 200, 1000) | Pydantic models | DB me `String(n)` bas upar ki chhat hai; asli error message Pydantic deta hai |
@@ -151,7 +151,7 @@ Har faisle ke peeche ek wajah hai:
 | `String(n)` chhoti jagah | `title(120)`, `venue(200)`, `cancel_note(200)` | Ye numbers BRD ke hain. DB me bhi lagane se aakhri raksha mil jaati hai — koi script Pydantic ke bina likhe to bhi 500 character ka title andar nahi ja sakta |
 | `String(20)` / `String(40)` enum ke liye | `status`, `mode`, `event_type`, `cancel_reason` | Postgres `ENUM` jaan-boojh kar nahi — naya event type aane par `ALTER TYPE` chalana padta, aur ye list abhi badalti rahegi. Values ki jaanch Pydantic me hogi |
 | `nullable=False` sirf 6 jagah | `org_id`, `event_type`, `title`, `event_date`, `status`, `created_by` | Ye wahi hain jo **har** event type me bharte hain. Baaki sab kisi na kisi type par khaali rehte hain (Deadline par time nahi, Online Assessment par venue nahi), isliye un par `nullable=False` lagta hi nahi |
-| `default=` (Python side), `server_default=` nahi | `status`, `is_all_day` | Value app me set hoti hai, isliye object banate hi `event.status` padha ja sakta hai — DB se wapas padhne ka intezaar nahi karna padta |
+| `default=` (Python side), `server_default=` nahi | `status` | Value app me set hoti hai, isliye object banate hi `event.status` padha ja sakta hai — DB se wapas padhne ka intezaar nahi karna padta |
 | `server_default=func.now()` | `created_at`, `updated_at` | Time DB ka hona chahiye, app server ka nahi — do server alag timezone ya thoda aage-peeche chal rahe ho to bhi row ka time ek hi ghadi se aaye |
 | `onupdate=func.now()` | `updated_at` | Har `UPDATE` par apne aap badle — koi route ise set karna bhool nahi sakta |
 | Index sirf 3 jagah | `org_id` + do composite | Index har `INSERT` ko thoda mehenga karta hai, isliye sirf unhi par jo query me **har baar** aate hain |
