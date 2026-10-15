@@ -51,6 +51,9 @@ class EventIn(BaseModel):
     note: str | None = Field(default=None, max_length=500)
     audience: AudienceIn | None = None
     linked_job: LinkedJobIn | None = None
+    remind_before: Literal["none", "at_time", "15_min", "1_hour", "1_day"] | None = None
+    linked_type: Literal["event", "job_deadline"] | None = None
+    linked_id: str | None = None
 
     @model_validator(mode="after")
     def check_by_type(self):
@@ -141,6 +144,9 @@ class EventOut(BaseModel):
     notified_count: int
     audience: AudienceIn | None
     linked_job: LinkedJobIn | None
+    remind_before: str | None = None
+    linked_type: str | None = None
+    linked_id: str | None = None
     is_owner: bool
 
 

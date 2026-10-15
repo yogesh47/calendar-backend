@@ -134,6 +134,9 @@ def reminder_out(reminder: CalendarReminder, viewer: HardcodedUser) -> EventOut:
         notified_count=0,
         audience=None,
         linked_job=None,
+        remind_before=reminder.remind_before,
+        linked_type=reminder.linked_type,
+        linked_id=str(reminder.linked_id) if reminder.linked_id else None,
         is_owner=str(reminder.owner_id) == viewer.user_id,
     )
 
@@ -221,6 +224,9 @@ def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut
             reminder_date=payload.event_date,
             reminder_time=payload.start_time,
             note=payload.note,
+            remind_before=payload.remind_before or "none",
+            linked_type=payload.linked_type,
+            linked_id=uuid.UUID(payload.linked_id) if payload.linked_id else None,
         )
         db.add(reminder)
         db.commit()
@@ -254,10 +260,15 @@ def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut
 def update_event(db: Session, user: HardcodedUser, event_id: str, payload: EventIn) -> EventOut:
     reminder = db.get(CalendarReminder, uuid.UUID(event_id))
     if reminder:
+        if str(reminder.owner_id) != user.user_id:
+            raise PermissionError("Only the owner can edit this reminder")
         reminder.title = payload.title
         reminder.reminder_date = payload.event_date
         reminder.reminder_time = payload.start_time
         reminder.note = payload.note
+        reminder.remind_before = payload.remind_before or "none"
+        reminder.linked_type = payload.linked_type
+        reminder.linked_id = uuid.UUID(payload.linked_id) if payload.linked_id else None
         db.commit()
         db.refresh(reminder)
 

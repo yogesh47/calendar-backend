@@ -37,9 +37,12 @@ def count_audience(payload: AudienceCountIn, _: HardcodedUser = Depends(require_
 @router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
 def create_event(
     payload: EventIn,
-    user: HardcodedUser = Depends(require_role(TPO)),
+    user: HardcodedUser = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> EventOut:
+    if payload.event_type != "my_reminder" and user.role != TPO:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a TPO can create events")
+
     created = calendar_service.create_event(db, user, payload)
     live_stream.publish(user.org_id, created.event_id)
 
@@ -50,13 +53,18 @@ def create_event(
 def update_event(
     event_id: str,
     payload: EventIn,
-    user: HardcodedUser = Depends(require_role(TPO)),
+    user: HardcodedUser = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> EventOut:
+    if payload.event_type != "my_reminder" and user.role != TPO:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a TPO can edit events")
+
     try:
         updated = calendar_service.update_event(db, user, event_id, payload)
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+    except PermissionError as denied:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
 
     live_stream.publish(user.org_id, updated.event_id)
 

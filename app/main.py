@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.conf import CORS_ORIGINS
+from app.errors import register_errors
 from app.routes import auth, calendar, health
 
 app = FastAPI(title="Campus Calendar", version="0.1.0")
@@ -13,6 +14,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_errors(app)
 
 app.include_router(health.router)
 app.include_router(auth.router)
