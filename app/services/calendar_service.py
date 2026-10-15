@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth.users import HardcodedUser, TPO, find_by_id
 from app.db.models import CalendarEvent, CalendarEventAudience, CalendarEventRecipient, CalendarReminder
 from app.models.calendar_model import AudienceIn, EventIn, EventOut, LinkedJobIn, NotificationOut
+from app.services.clock import local_date, local_time, to_utc
 from app.services.companies import company_id_of, company_name_of
 from app.services.students import count_audience, matching_student_ids
 
@@ -32,11 +33,7 @@ def _name_of(user_id) -> str:
     return user.name if user else "TPO"
 
 
-def _moment(day, value: time | None) -> datetime | None:
-    if not value:
-        return None
 
-    return datetime.combine(day, value, tzinfo=timezone.utc)
 
 
 def audience_count(audience: AudienceIn) -> int:
@@ -81,8 +78,9 @@ def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> Event
         title=event.title,
         company=company_name_of(event.company_id),
         event_date=event.event_date,
-        start_time=_text(event.start_at.time() if event.start_at else None),
-        end_time=_text(event.end_at.time() if event.end_at else None),
+        end_date=local_date(event.end_at) or event.event_date,
+        start_time=local_time(event.start_at),
+        end_time=local_time(event.end_at),
         mode=event.mode,
         venue=event.venue,
         online_platform=event.online_platform,
@@ -117,6 +115,7 @@ def reminder_out(reminder: CalendarReminder, viewer: HardcodedUser) -> EventOut:
         title=reminder.title,
         company=None,
         event_date=reminder.reminder_date,
+        end_date=reminder.reminder_date,
         start_time=_text(reminder.reminder_time),
         end_time=None,
         mode=None,
@@ -197,8 +196,8 @@ def apply_payload(event: CalendarEvent, payload: EventIn) -> None:
     event.title = payload.title
     event.company_id = company_id_of(payload.company)
     event.event_date = payload.event_date
-    event.start_at = _moment(payload.event_date, payload.start_time)
-    event.end_at = _moment(payload.event_date, payload.end_time)
+    event.start_at = to_utc(payload.event_date, payload.start_time)
+    event.end_at = to_utc(payload.end_date or payload.event_date, payload.end_time)
     event.mode = payload.mode
     event.venue = payload.venue
     event.online_platform = payload.online_platform
@@ -323,7 +322,7 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
         if not event:
             continue
 
-        start = f", {_text(event.start_at.time())}" if event.start_at else ""
+        start = f", {local_time(event.start_at)}" if event.start_at else ""
         if event.status == "cancelled" and event.cancel_reason == "created_by_mistake":
             message = f"Please ignore the earlier notification about {event.title}."
         elif event.status == "cancelled":

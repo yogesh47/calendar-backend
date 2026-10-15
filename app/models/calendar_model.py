@@ -41,6 +41,7 @@ class EventIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     company: str | None = None
     event_date: date
+    end_date: date | None = None
     start_time: time | None = None
     end_time: time | None = None
     mode: Literal["offline", "online"] | None = None
@@ -59,8 +60,9 @@ class EventIn(BaseModel):
         if self.event_type in TIMED_TYPES:
             if not self.start_time or not self.end_time:
                 raise ValueError("Start and end time are required for this event type")
-            if self.end_time <= self.start_time:
-                raise ValueError("End time must be after start time")
+            end_day = self.end_date or self.event_date
+            if datetime.combine(end_day, self.end_time) <= datetime.combine(self.event_date, self.start_time):
+                raise ValueError("End must be after the start")
 
         if self.event_type in MODE_TYPES:
             if not self.mode:
@@ -110,6 +112,7 @@ class EventOut(BaseModel):
     title: str
     company: str | None
     event_date: date
+    end_date: date | None
     start_time: str | None
     end_time: str | None
     mode: str | None

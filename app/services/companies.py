@@ -1,6 +1,12 @@
 import uuid
 
-COMPANY_NAMES = ("Deloitte", "Infosys", "TCS", "Wipro", "Accenture", "Zoho")
+COMPANY_NAMES = (
+    "47 billion",
+    "Quantum Dynamics Inc.",
+    "Zecoho Technologies Private Limited",
+    "Tripocio Carnival Pvt Ltd",
+    "Hirednex",
+)
 
 COMPANY_NAMESPACE = uuid.UUID("00000000-0000-0000-0000-0000000000c0")
 
