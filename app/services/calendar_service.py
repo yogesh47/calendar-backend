@@ -309,6 +309,64 @@ def delete_reminder(db: Session, user: HardcodedUser, reminder_id: str) -> None:
     db.commit()
 
 
+def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
+    key = uuid.UUID(item_id)
+
+    reminder = db.get(CalendarReminder, key)
+    if reminder:
+        if str(reminder.owner_id) != user.user_id:
+            raise PermissionError("Only the owner can delete this reminder")
+        db.delete(reminder)
+        db.commit()
+
+        return "reminder"
+
+    event = db.get(CalendarEvent, key)
+    if not event:
+        raise LookupError("Not found")
+
+    if str(event.created_by) != user.user_id:
+        raise PermissionError("Only the TPO who created this event can delete it")
+
+    db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == key).delete()
+    db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == key).delete()
+    db.delete(event)
+    db.commit()
+
+    return "event"
+
+
+def delete_many(db: Session, user: HardcodedUser, item_ids: list[str]) -> dict[str, list[str]]:
+    deleted: list[str] = []
+    skipped: list[str] = []
+
+    for item_id in item_ids:
+        try:
+            delete_item(db, user, item_id)
+            deleted.append(item_id)
+        except (LookupError, PermissionError, ValueError):
+            skipped.append(item_id)
+
+    return {"deleted": deleted, "skipped": skipped}
+
+
+def delete_everything(db: Session, user: HardcodedUser) -> int:
+    events = list(db.scalars(select(CalendarEvent).where(CalendarEvent.org_id == uuid.UUID(user.org_id))))
+    reminders = list(db.scalars(select(CalendarReminder).where(CalendarReminder.org_id == uuid.UUID(user.org_id))))
+
+    for event in events:
+        db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == event.event_id).delete()
+        db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == event.event_id).delete()
+        db.delete(event)
+
+    for reminder in reminders:
+        db.delete(reminder)
+
+    db.commit()
+
+    return len(events) + len(reminders)
+
+
 def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOut]:
     rows = list(
         db.scalars(

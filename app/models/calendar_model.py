@@ -98,6 +98,16 @@ class CancelIn(BaseModel):
         return self
 
 
+class DeleteManyIn(BaseModel):
+    event_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+class DeleteOut(BaseModel):
+    deleted: list[str] = []
+    skipped: list[str] = []
+    count: int = 0
+
+
 class AudienceCountIn(BaseModel):
     audience: AudienceIn
 

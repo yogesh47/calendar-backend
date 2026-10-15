@@ -10,6 +10,8 @@ from app.models.calendar_model import (
     AudienceCountIn,
     AudienceCountOut,
     CancelIn,
+    DeleteManyIn,
+    DeleteOut,
     EventIn,
     EventOut,
     NotificationOut,
@@ -79,15 +81,48 @@ def cancel_event(
 
 
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_reminder(
+def delete_one(
     event_id: str,
     user: HardcodedUser = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> None:
     try:
-        calendar_service.delete_reminder(db, user, event_id)
+        calendar_service.delete_item(db, user, event_id)
     except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reminder not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    except PermissionError as denied:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That id is not valid")
+
+    live_stream.publish(user.org_id, event_id)
+
+
+@router.post("/events/bulk-delete", response_model=DeleteOut)
+def delete_many(
+    payload: DeleteManyIn,
+    user: HardcodedUser = Depends(require_role(TPO)),
+    db: Session = Depends(get_db),
+) -> DeleteOut:
+    result = calendar_service.delete_many(db, user, payload.event_ids)
+    live_stream.publish(user.org_id, "bulk-delete")
+
+    return DeleteOut(deleted=result["deleted"], skipped=result["skipped"], count=len(result["deleted"]))
+
+
+@router.delete("/events", response_model=DeleteOut)
+def delete_all(
+    confirm: str = "",
+    user: HardcodedUser = Depends(require_role(TPO)),
+    db: Session = Depends(get_db),
+) -> DeleteOut:
+    if confirm != "yes":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add ?confirm=yes to wipe every event")
+
+    count = calendar_service.delete_everything(db, user)
+    live_stream.publish(user.org_id, "delete-all")
+
+    return DeleteOut(count=count)
 
 
 @router.get("/notifications", response_model=list[NotificationOut])

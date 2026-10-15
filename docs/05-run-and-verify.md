@@ -79,6 +79,48 @@ hota.
 | 12 | student TPO ka route nahi khol sakta |
 | 13 | ek bhi JS error nahi |
 
+## Events hatane ke teen raaste
+
+> Ye **sirf development ke liye** hain. BRD kehta hai ki publish ho chuki event
+> kabhi permanently delete nahi hoti — usse cancel kiya jaata hai. Ye routes
+> testing ka kooda saaf karne ke liye bane hain.
+
+Pehle token le lo:
+
+```bash
+TPO=$(curl -s -X POST http://127.0.0.1:8001/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"tpo@campus.test","password":"tpo@1234"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+```
+
+**Ek event hatana** — id `GET /calendar/events` se milti hai:
+
+```bash
+curl -X DELETE http://127.0.0.1:8001/calendar/events/<event_id> \
+  -H "Authorization: Bearer $TPO"
+```
+
+**Chuni hui kai events hatana:**
+
+```bash
+curl -X POST http://127.0.0.1:8001/calendar/events/bulk-delete \
+  -H "Authorization: Bearer $TPO" -H 'Content-Type: application/json' \
+  -d '{"event_ids":["<id1>","<id2>"]}'
+```
+Jawab me `deleted` aur `skipped` dono aate hain — jo id milti nahi, wo skip ho
+jaati hai, baaki ka kaam nahi rukta.
+
+**Sab kuch hatana** (`confirm=yes` ke bina chalta hi nahi):
+
+```bash
+curl -X DELETE "http://127.0.0.1:8001/calendar/events?confirm=yes" \
+  -H "Authorization: Bearer $TPO"
+```
+
+Teeno raaste delete ke baad live stream par khabar bhejte hain, isliye khule hue
+calendar bina refresh ke apne aap khaali ho jaate hain.
+
 ## Jab kuch na chale
 
 | Dikhta hai | Wajah | Ilaj |
