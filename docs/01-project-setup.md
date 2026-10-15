@@ -28,9 +28,11 @@ calendar-backend/
 └── .gitignore
 ```
 
-Dhancha `campus-calendar-backend-design.md` §15 se liya gaya hai.
+Dhancha design doc ke Architecture wale hisse se liya gaya hai.
 
 ## Commands
+
+> Command me koi flag samajh na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho.
 
 ```bash
 cd /home/billion/Documents/Projects/7Seers/calendar/calendar-backend
@@ -46,7 +48,7 @@ pip install -r requirements.txt
 
 ## Dependencies
 
-`requirements.txt` — design doc §13 ki list, wahi versions:
+`requirements.txt` — design doc ki Libraries wali list, wahi versions:
 
 | Library | Version | Kaam |
 |---|---|---|
@@ -77,10 +79,10 @@ cp .env.example .env
 | `DATABASE_URL` | `postgresql+psycopg2://calendar:calendar@localhost:5440/campus_calendar` | step 2 dekho |
 | `JWT_SECRET` | `change-me-in-every-environment` | **har environment me badlo** |
 | `JWT_EXPIRY_MINUTES` | 720 | 12 ghante |
-| `DEFAULT_ORG_TIMEZONE` | `Asia/Kolkata` | design §3 |
+| `DEFAULT_ORG_TIMEZONE` | `Asia/Kolkata` | design doc, Date aur time |
 | `DEFAULT_ORG_ID` | `1111...` | POC ka ek org |
 | `CORS_ORIGINS` | `http://localhost:5180` | frontend ka port |
 
-> `app/services/` aur `app/clients/` design doc §15 me hain, par abhi unme kuch
+> `app/services/` aur `app/clients/` design doc ke Architecture wale hisse me hain, par abhi unme kuch
 > hai nahi — khali folder rakhne ke bajaye jab pehli service/client banegi tab
 > bana lenge.

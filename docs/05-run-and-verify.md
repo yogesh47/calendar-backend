@@ -1,6 +1,8 @@
-# Step 6 — Chalana aur jaanchna
+# Step 5 — Chalana aur jaanchna
 
 ## Teen cheezein chalni chahiye
+
+> Command me koi flag samajh na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho.
 
 | # | Kya | Command | Port |
 |---|---|---|---|
@@ -90,14 +92,14 @@ hota.
 
 ## Aage kya
 
-| # | Kaam | Design me kahan |
+| # | Kaam | Design doc me kahan |
 |---|---|---|
-| B4 | Pydantic request/response — event ke liye | §7 |
-| B5 | `calendar_audience_service` — resolve + count | §8 |
-| B6 | `POST /calendar/audience/count` | §9 |
-| B7 | `calendar_deadline_service` — jobs API se derive | §8 |
-| B8 | `GET /calendar/events` | §9 |
+| 1 | Pydantic request/response — event ke liye | Pydantic models |
+| 2 | `calendar_audience_service` — kaun se student, kitne student | Services |
+| 3 | `POST /calendar/audience/count` | Routes |
+| 4 | `calendar_deadline_service` — jobs API se deadline nikalna | Services |
+| 5 | `GET /calendar/events` | Routes |
 
-Phase 0 ke 7 sawaal abhi bhi khule hain (`calendar-frontend/docs/README.md` ka
-aakhri section) — timezone, student ke fields, eligibility, notification
-service, scheduler, push provider, settings table.
+Saat sawaal abhi bhi khule hain (`calendar-frontend/docs/README.md` ke aakhri
+section me) — timezone, student ke fields, eligibility, notification service,
+scheduler, push provider, settings table.

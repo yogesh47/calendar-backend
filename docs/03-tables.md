@@ -2,7 +2,7 @@
 
 ## Kaun si 6 tables
 
-Design doc §5 ke hisaab se, `app/db/models.py` me:
+Design doc ke Tables wale hisse ke hisaab se, `app/db/models/` me — har table ki apni file:
 
 | Table | Kya rakhti hai |
 |---|---|
@@ -13,6 +13,11 @@ Design doc §5 ke hisaab se, `app/db/models.py` me:
 | `calendar_nudge` | kis student ko kab nudge jaana hai |
 | `calendar_settings` | **poore platform ki ek hi row** — isi liye ispar `org_id` nahi |
 
+Saatvi file `columns.py` hai — koi table nahi, sirf wo column definitions jo
+baar-baar aati hain (`primary_key()`, `required_id()`, `moment()`,
+`created_at()`, `text()`, `flag()`, `count()`). Model file me ab sirf naam aur
+rule dikhta hai, `Column(...)` ka dohraav nahi.
+
 **Application Deadline ki koi table nahi.** Wo jobs API ki expiry date se derive
 hoti hai — design ka pehla na-badalne-wala faisla.
 
@@ -21,7 +26,7 @@ hoti hai — design ka pehla na-badalne-wala faisla.
 | Baat | Kyun |
 |---|---|
 | `student_id`, `company_id`, job ids par **FK nahi** | wo rows hamare DB me hain hi nahi — SkillsBridge ki hain |
-| `event_date` `Date` hai, `timestamp` nahi | all-day cheez ka din timezone se nahi badalna chahiye (§3) |
+| `event_date` `Date` hai, `timestamp` nahi | all-day cheez ka din timezone se nahi badalna chahiye (design doc, Date aur time wala hissa) |
 | `start_at` / `end_at` `DateTime(timezone=True)` | DB me UTC, render user ke timezone me |
 
 ## Unique constraints — inhi se galti rukti hai
@@ -43,6 +48,8 @@ hoti hai — design ka pehla na-badalne-wala faisla.
 | `ix_calendar_reminder_owner_date` | My Reminders |
 
 ## Banane ka command
+
+> Command me koi flag samajh na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho.
 
 ```bash
 cd calendar-backend

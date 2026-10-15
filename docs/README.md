@@ -10,8 +10,11 @@ docs/
 ├── 02-database.md           DB banana, connection
 ├── 03-tables.md             6 tables + settings ki ek row
 ├── 04-auth-login.md         do hardcoded user, JWT, /auth/login
-├── 05-frontend-login.md     login page, route guard
-└── 06-run-and-verify.md     sab chalana aur jaanchna
+├── 05-run-and-verify.md     sab chalana aur jaanchna
+├── 06-commands-reference.md har flag ka matlab
+└── tables/
+    ├── calendar_event.md    har column kyun hai
+    └── columns.md           shared column helpers
 ```
 
 ## Abhi tak kya ban chuka hai
@@ -22,8 +25,11 @@ docs/
 | 2 | DB creation + connection | ✅ |
 | 3 | 6 tables + settings row | ✅ |
 | 4 | Do hardcoded user + login API | ✅ |
-| 5 | Frontend login page + guard | ✅ |
-| 6 | End-to-end verify (13 checks) | ✅ |
+| 5 | End-to-end verify (13 checks) | ✅ |
+
+> Kisi bhi command me `-d`, `-it`, `-U`, `\dt`, `--strictPort` jaisa kuch samajh
+> na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho — in
+> docs me jo bhi flag use hua hai, sabka matlab wahan hai.
 
 ## Design ka sach kahan hai
 

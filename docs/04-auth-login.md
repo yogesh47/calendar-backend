@@ -2,7 +2,7 @@
 
 ## User DB me kyun nahi hain
 
-Design (§1a) kehta hai: **users hamare nahi hain** — identity SkillsBridge ke
+Design doc ka Kya hamara hai, kya bahar se aayega wala hissa kehta hai: **users hamare nahi hain** — identity SkillsBridge ke
 paas hai. Isliye koi `user` table nahi banayi. POC chalane ke liye do user
 **code me** rakhe hain, `app/auth/users.py` me. Jis din asli identity service
 judegi, sirf ye ek file badlegi.
@@ -38,9 +38,11 @@ Payload me kya jaata hai:
 ```
 
 `org_id` aur `role` token me isliye hain ki har request par inhe dobara dhoondhna
-na pade — design §1b ka role check inhi par chalta hai.
+na pade — design doc ke Roles aur permissions wale hisse ka role check inhi par chalta hai.
 
 ## Endpoints
+
+> Command me koi flag samajh na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho.
 
 | Method | Path | Kya karta hai |
 |---|---|---|
@@ -102,4 +104,4 @@ def koi_bhi_logged_in(user = Depends(current_user)):
 ```
 
 Aage jab calendar ke routes banenge, TPO-only cheezein `require_role("tpo")` ke
-peeche jaayengi — design §1b ka capability matrix wahin lagega.
+peeche jaayengi — design doc ke Roles aur permissions wale hisse ki table wahin lagegi.
