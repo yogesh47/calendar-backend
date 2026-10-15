@@ -49,14 +49,13 @@ API ka apna doc: **http://127.0.0.1:8001/docs**
 
 Ek bridge likha hua hai jo asli Chrome me poora flow chalata hai:
 
-Script repo me hai: `calendar-backend/scripts/verify_login.cjs`. Usko
-`playwright-core` chahiye:
+Script frontend me hai (backend Python ka hai, usme `node_modules` nahi aata):
 
 ```bash
-cd calendar-backend
-npm init -y >/dev/null 2>&1
+cd calendar-frontend
 npm i -D playwright-core
 node scripts/verify_login.cjs
+node scripts/verify_tpo_flow.cjs
 ```
 
 Chrome system wala hi use hota hai (`channel: 'chrome'`), alag se download nahi
