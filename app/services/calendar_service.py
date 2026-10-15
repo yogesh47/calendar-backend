@@ -363,7 +363,9 @@ def delete_many(db: Session, user: HardcodedUser, item_ids: list[str]) -> dict[s
 
 def delete_everything(db: Session, user: HardcodedUser) -> int:
     events = list(db.scalars(select(CalendarEvent).where(CalendarEvent.org_id == uuid.UUID(user.org_id))))
-    reminders = list(db.scalars(select(CalendarReminder).where(CalendarReminder.org_id == uuid.UUID(user.org_id))))
+    reminders = list(
+        db.scalars(select(CalendarReminder).where(CalendarReminder.owner_id == uuid.UUID(user.user_id)))
+    )
 
     for event in events:
         db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == event.event_id).delete()
