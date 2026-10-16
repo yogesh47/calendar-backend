@@ -35,3 +35,6 @@ class CalendarEvent(Base):
     created_by = columns.required_id()
     created_at = columns.created_at()
     updated_at = columns.updated_at()
+    change_summary = columns.text(300)
+    change_reason = columns.text(200)
+    notify_on_change = columns.flag(default=True)

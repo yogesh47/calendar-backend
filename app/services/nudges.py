@@ -13,7 +13,7 @@ from app.db.models import (
 )
 from app.services import settings_service
 from app.services.clock import ORG_TIMEZONE, local_time, to_utc
-from app.services.jobs import CAMPUS_JOBS, job_by_id
+from app.services.jobs import CAMPUS_JOBS, has_applied, is_open, job_by_id
 from app.services.students import STUDENT_PROFILE
 
 EVENT_DAY_BEFORE = "event_day_before"
@@ -80,6 +80,16 @@ def _add(db: Session, org_id, student_id, nudge_type: str, item_type: str, item_
             status="scheduled",
         )
     )
+
+
+# The student applied, so drop their pending nudges for that job.
+def drop_for_job(db: Session, job_id: str, student_id: str) -> None:
+    db.query(CalendarNudge).filter(
+        CalendarNudge.item_id == uuid.UUID(job_id),
+        CalendarNudge.student_id == uuid.UUID(student_id),
+        CalendarNudge.status == "scheduled",
+    ).delete()
+    db.commit()
 
 
 def _drop_scheduled(db: Session, item_id) -> None:
@@ -173,10 +183,13 @@ def schedule_deadlines(db: Session, org_id: str) -> None:
     students = [user for user in HARDCODED_USERS if user.role == STUDENT]
 
     for job in CAMPUS_JOBS:
-        if STUDENT_PROFILE["department"] not in job.departments:
+        if not is_open(job) or STUDENT_PROFILE["department"] not in job.departments:
             continue
 
         for student in students:
+            if has_applied(job.job_id, student.user_id):
+                continue
+
             _add(
                 db,
                 org_id,
@@ -204,11 +217,25 @@ def schedule_deadlines(db: Session, org_id: str) -> None:
 def _still_relevant(db: Session, row: CalendarNudge) -> str | None:
     if row.item_type == "reminder":
         reminder = db.get(CalendarReminder, row.item_id)
+        if not reminder:
+            return "The reminder was deleted"
 
-        return None if reminder else "The reminder was deleted"
+        if reminder.linked_type == "event" and reminder.linked_id:
+            linked = db.get(CalendarEvent, reminder.linked_id)
+            if linked and linked.status == "cancelled":
+                return "The linked event was cancelled"
+
+        return None
 
     if row.item_type == "job":
-        return None if job_by_id(str(row.item_id)) else "The job is no longer active"
+        job = job_by_id(str(row.item_id))
+        if not job or not is_open(job):
+            return "The job is no longer active"
+
+        if has_applied(job.job_id, str(row.student_id)):
+            return "The student has already applied"
+
+        return None
 
     event = db.get(CalendarEvent, row.item_id)
     if not event:
@@ -242,6 +269,15 @@ def _quiet_until(settings, moment: datetime) -> datetime | None:
     day = local.date() + timedelta(days=1) if overnight and clock >= start else local.date()
 
     return to_utc(day, end)
+
+
+# The 1-hour reminder is only exempt from quiet hours when the event itself starts in them.
+def _starts_in_quiet_hours(db: Session, settings, row: CalendarNudge) -> bool:
+    event = db.get(CalendarEvent, row.item_id) if row.item_type == "event" else None
+    if not event or not event.start_at:
+        return False
+
+    return _quiet_until(settings, event.start_at) is not None
 
 
 def message_for(db: Session, row: CalendarNudge) -> str:
@@ -314,7 +350,9 @@ def run_due(db: Session, now: datetime | None = None) -> dict[str, int]:
             counts["skipped"] += 1
             continue
 
-        skips_quiet_hours = row.nudge_type in (EVENT_HOUR_BEFORE, REMINDER_ALERT)
+        skips_quiet_hours = row.nudge_type == REMINDER_ALERT or (
+            row.nudge_type == EVENT_HOUR_BEFORE and _starts_in_quiet_hours(db, settings, row)
+        )
         held_until = None if skips_quiet_hours else _quiet_until(settings, moment)
         if held_until and held_until > moment:
             row.scheduled_at = held_until

@@ -188,6 +188,28 @@ Ek notification padhi gayi (tap par).
 
 > Nudges kab bante aur kab jaate hain — [`flows/nudges.md`](flows/nudges.md).
 
+### `POST /calendar/jobs/{job_id}/apply` → **201** · `DELETE` → **204**
+Demo apply / withdraw (sirf `student`). Apply karte hi us job ki deadline student
+ke calendar se hat jaati hai aur uske **pending deadline nudges** bhi — BRD
+FR-CAL-08 / FR-CAL-26 yahi kehte hain.
+
+### Jobs service se kya-kya chahiye
+
+Abhi jobs `app/services/jobs.py` me hardcoded hain. Asli 7Seers Jobs API aate hi
+sirf wahi file badlegi — `from_payload()` adapter pehle se wahi shape padhta hai
+jo aapke job-detail response me aata hai:
+
+| Calendar ko chahiye | Jobs payload me |
+|---|---|
+| job id | `job_description.job_id` |
+| title / company | `job_description.job_title` · `company_info.name` |
+| deadline ki date | `job_description.application_end_date` |
+| job chalu hai? | `job_description.status == "active"` |
+| kis department ke liye | `department: [...]` (case kuch bhi ho, match case-insensitive hai) |
+| kis batch ke liye | `job_description.batch` (`null` = sab batch) |
+| student eligible hai? | `job_description.is_eligible` |
+| apply kar chuka? | `application_status` (null/khali = nahi kiya) |
+
 ---
 
 ## 6. Push (mobile)

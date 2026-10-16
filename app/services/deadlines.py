@@ -2,20 +2,35 @@ from datetime import date
 
 from app.auth.users import TPO, HardcodedUser
 from app.models.calendar_model import EventOut, LinkedJobIn
-from app.services.jobs import CAMPUS_JOBS, CampusJob
+from app.services.jobs import (
+    CAMPUS_JOBS,
+    CampusJob,
+    deadline_counts,
+    has_applied,
+    is_eligible,
+    is_open,
+)
 from app.services.students import STUDENT_PROFILE
 
 
-# A campus job the student may still apply to shows its closing date on the calendar.
+# BRD FR-CAL-08: a student sees a deadline only while the job is active, they are eligible
+# and they have not applied yet. A TPO sees every active job's deadline.
 def visible_jobs(viewer: HardcodedUser) -> list[CampusJob]:
-    if viewer.role == TPO:
-        return list(CAMPUS_JOBS)
+    live = [job for job in CAMPUS_JOBS if is_open(job)]
 
-    return [job for job in CAMPUS_JOBS if STUDENT_PROFILE["department"] in job.departments]
+    if viewer.role == TPO:
+        return live
+
+    return [
+        job
+        for job in live
+        if is_eligible(job, STUDENT_PROFILE["course"], STUDENT_PROFILE["batch"], STUDENT_PROFILE["department"])
+        and not has_applied(job.job_id, viewer.user_id)
+    ]
 
 
 # The deadline reads like any other calendar item, so one list serves web and mobile.
-def deadline_out(job: CampusJob) -> EventOut:
+def deadline_out(job: CampusJob, viewer: HardcodedUser) -> EventOut:
     moment = f"{job.application_end_date.isoformat()}T00:00:00+00:00"
 
     return EventOut(
@@ -47,11 +62,12 @@ def deadline_out(job: CampusJob) -> EventOut:
         linked_type="job_deadline",
         linked_id=job.job_id,
         is_owner=False,
+        deadline_counts=deadline_counts(job) if viewer.role == TPO else None,
     )
 
 
 def deadline_items(viewer: HardcodedUser) -> list[EventOut]:
-    return [deadline_out(job) for job in visible_jobs(viewer)]
+    return [deadline_out(job, viewer) for job in visible_jobs(viewer)]
 
 
 def closing_on_or_after(viewer: HardcodedUser, day: date) -> list[EventOut]:

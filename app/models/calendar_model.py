@@ -54,6 +54,9 @@ class EventIn(BaseModel):
     remind_before: Literal["none", "at_time", "15_min", "1_hour", "1_day"] | None = None
     linked_type: Literal["event", "job_deadline"] | None = None
     linked_id: str | None = None
+    change_summary: str | None = Field(default=None, max_length=300)
+    change_reason: str | None = Field(default=None, max_length=200)
+    notify_on_change: bool = True
 
     @model_validator(mode="after")
     def check_by_type(self):
@@ -150,6 +153,15 @@ class EventOut(BaseModel):
     is_owner: bool
     applies_to_me: bool = True
     removed_reason: str | None = None
+    change_summary: str | None = None
+    change_reason: str | None = None
+    deadline_counts: dict[str, int] | None = None
+
+
+class ApplicationOut(BaseModel):
+    application_id: str
+    job_id: str
+    application_status: str
 
 
 class DeviceIn(BaseModel):

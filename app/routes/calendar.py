@@ -10,6 +10,7 @@ from app.auth.tokens import read_token
 from app.auth.users import STUDENT, TPO, HardcodedUser, find_by_id
 from app.db.session import get_db
 from app.models.calendar_model import (
+    ApplicationOut,
     AudienceCountIn,
     AudienceCountOut,
     CancelIn,
@@ -68,7 +69,10 @@ def create_event(
     if payload.event_type != "my_reminder" and user.role != TPO:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a TPO can create events")
 
-    created = calendar_service.create_event(db, user, payload)
+    try:
+        created = calendar_service.create_event(db, user, payload)
+    except ValueError as bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
     live_stream.publish(user.org_id, created.event_id)
 
     return created
@@ -91,6 +95,8 @@ def update_event(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
     except PermissionError as denied:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
+    except ValueError as bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
 
     live_stream.publish(user.org_id, updated.event_id)
 
@@ -111,6 +117,8 @@ def cancel_event(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
     except PermissionError as denied:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
+    except ValueError as bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
 
     live_stream.publish(user.org_id, cancelled.event_id)
 
@@ -190,7 +198,10 @@ def read_notification(
     user: Annotated[HardcodedUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    calendar_service.mark_seen(db, user, notification_id)
+    try:
+        calendar_service.mark_seen(db, user, notification_id)
+    except ValueError as bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
 
 
 # Marks every notification of the user as read.
@@ -200,6 +211,35 @@ def read_all_notifications(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     calendar_service.mark_all_seen(db, user)
+
+
+# Demo "apply" — the Jobs service owns this in the real app. Applying takes the deadline
+# off the student's calendar, along with their pending nudges for it.
+@router.post("/jobs/{job_id}/apply", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
+def apply_to_job(
+    job_id: str,
+    user: Annotated[HardcodedUser, Depends(require_role(STUDENT))],
+    db: Annotated[Session, Depends(get_db)],
+) -> ApplicationOut:
+    try:
+        entry = calendar_service.apply_to_job(db, user, job_id)
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+
+    live_stream.publish(user.org_id, "application")
+
+    return entry
+
+
+# Withdrawing the application brings the deadline back.
+@router.delete("/jobs/{job_id}/apply", status_code=status.HTTP_204_NO_CONTENT)
+def withdraw_application(
+    job_id: str,
+    user: Annotated[HardcodedUser, Depends(require_role(STUDENT))],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    calendar_service.withdraw_application(db, user, job_id)
+    live_stream.publish(user.org_id, "application")
 
 
 # The mobile app registers its push token here so nudges can reach the phone.

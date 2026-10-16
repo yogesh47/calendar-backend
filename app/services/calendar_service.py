@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.db.models import (
     CalendarReminder,
 )
 from app.models.calendar_model import (
+    ApplicationOut,
     AudienceIn,
     EventIn,
     EventOut,
@@ -22,6 +23,9 @@ from app.models.calendar_model import (
 from app.services import deadlines, nudges
 from app.services.clock import local_date, local_time, to_utc
 from app.services.companies import company_id_of, company_name_of
+from app.services.ids import as_uuid
+from app.services.jobs import apply_to, job_by_id
+from app.services.jobs import withdraw as withdraw_from
 from app.services.students import count_audience, matching_student_ids
 
 CANCEL_REASON_LABEL = {
@@ -117,6 +121,8 @@ def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> Event
         created_by_name=_name_of(event.created_by),
         created_at=event.created_at,
         updated_at=event.updated_at,
+        change_summary=event.change_summary,
+        change_reason=event.change_reason,
         notified_count=stored or _recipient_count(db, event.event_id),
         audience=AudienceIn(
             opportunity_type=audience.opportunity_type,
@@ -247,6 +253,25 @@ def list_items(
     return within(items, start, end)
 
 
+# Applying also clears that student's pending deadline nudges.
+def apply_to_job(db: Session, user: HardcodedUser, job_id: str) -> ApplicationOut:
+    job = job_by_id(job_id)
+    if not job:
+        raise LookupError("Job not found")
+
+    entry = apply_to(job_id, user.user_id)
+    nudges.drop_for_job(db, job_id, user.user_id)
+
+    return ApplicationOut(
+        application_id=entry.application_id, job_id=entry.job_id, application_status=entry.application_status
+    )
+
+
+def withdraw_application(db: Session, user: HardcodedUser, job_id: str) -> None:
+    withdraw_from(job_id, user.user_id)
+    nudges.schedule_deadlines(db, user.org_id)
+
+
 # The mobile "Coming Up" card: the next few items the viewer still cares about.
 def coming_up(db: Session, viewer: HardcodedUser, limit: int = 3) -> list[EventOut]:
     today = local_date(_now())
@@ -287,6 +312,12 @@ def sync_recipients(db: Session, event: CalendarEvent, audience: AudienceIn) -> 
         row.state = "active" if student_id in wanted else "removed"
         if student_id not in wanted:
             row.seen_at = None
+
+
+def apply_change_notes(event: CalendarEvent, payload: EventIn) -> None:
+    event.change_summary = payload.change_summary
+    event.change_reason = payload.change_reason
+    event.notify_on_change = payload.notify_on_change
 
 
 def apply_payload(event: CalendarEvent, payload: EventIn) -> None:
@@ -355,7 +386,8 @@ def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut
 
 
 def update_event(db: Session, user: HardcodedUser, event_id: str, payload: EventIn) -> EventOut:
-    reminder = db.get(CalendarReminder, uuid.UUID(event_id))
+    key = as_uuid(event_id)
+    reminder = db.get(CalendarReminder, key)
     if reminder:
         if str(reminder.owner_id) != user.user_id:
             raise PermissionError("Only the owner can edit this reminder")
@@ -372,7 +404,7 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
 
         return reminder_out(reminder, user)
 
-    event = db.get(CalendarEvent, uuid.UUID(event_id))
+    event = db.get(CalendarEvent, key)
     if not event:
         raise LookupError("Event not found")
 
@@ -380,6 +412,7 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
         raise PermissionError("Only the TPO who created this event can edit it")
 
     apply_payload(event, payload)
+    apply_change_notes(event, payload)
 
     if payload.audience:
         audience = _audience_of(db, event.event_id)
@@ -398,12 +431,16 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
 
 
 def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, note: str | None) -> EventOut:
-    event = db.get(CalendarEvent, uuid.UUID(event_id))
+    event = db.get(CalendarEvent, as_uuid(event_id))
     if not event:
         raise LookupError("Event not found")
 
     if str(event.created_by) != user.user_id:
         raise PermissionError("Only the TPO who created this event can cancel it")
+
+    finished = event.end_at or event.start_at
+    if finished and finished <= _now():
+        raise PermissionError("An event can only be cancelled before it ends")
 
     event.status = "cancelled"
     event.cancel_reason = reason
@@ -418,7 +455,7 @@ def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, n
 
 
 def delete_reminder(db: Session, user: HardcodedUser, reminder_id: str) -> None:
-    reminder = db.get(CalendarReminder, uuid.UUID(reminder_id))
+    reminder = db.get(CalendarReminder, as_uuid(reminder_id))
     if not reminder or str(reminder.owner_id) != user.user_id:
         raise LookupError("Reminder not found")
 
@@ -427,7 +464,7 @@ def delete_reminder(db: Session, user: HardcodedUser, reminder_id: str) -> None:
 
 
 def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
-    key = uuid.UUID(item_id)
+    key = as_uuid(item_id)
 
     reminder = db.get(CalendarReminder, key)
     if reminder:
@@ -515,10 +552,19 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
             )
         elif row.state == "removed":
             kind = "not_applicable"
-            message = f"{event.title} on {event.event_date:%d %b} no longer applies to you."
+            reason = f" {event.change_reason}" if event.change_reason else ""
+            message = f"{event.title} on {event.event_date:%d %b} no longer applies to you.{reason}"
+        elif row.created_at > event.created_at + timedelta(seconds=5):
+            kind = "new_event"
+            message = f"New event: {event.title} on {event.event_date:%d %b}{start}."
         elif event.updated_at > event.created_at:
             kind = "event_updated"
-            message = f"{event.title} has been updated."
+            if not event.notify_on_change:
+                message = f"{event.title} details have been updated."
+            elif event.change_summary:
+                message = f"{event.title} has been updated: {event.change_summary}."
+            else:
+                message = f"{event.title} has been updated."
         else:
             kind = "new_event"
             message = f"New event: {event.title} on {event.event_date:%d %b}{start}. Check your Campus Calendar."
@@ -551,7 +597,7 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
 
 
 def mark_seen(db: Session, viewer: HardcodedUser, notification_id: str) -> None:
-    key = uuid.UUID(notification_id)
+    key = as_uuid(notification_id)
     row = db.get(CalendarEventRecipient, key) or db.get(CalendarNudge, key)
     if not row or str(row.student_id) != viewer.user_id:
         return
