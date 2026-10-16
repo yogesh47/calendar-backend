@@ -411,6 +411,9 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
     if str(event.created_by) != user.user_id:
         raise PermissionError("Only the TPO who created this event can edit it")
 
+    if event.status == "cancelled":
+        raise PermissionError("A cancelled event cannot be edited")
+
     apply_payload(event, payload)
     apply_change_notes(event, payload)
 
