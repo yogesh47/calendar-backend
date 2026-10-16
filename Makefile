@@ -3,42 +3,42 @@ DB_CONTAINER = campus-calendar-db
 
 .PHONY: db-init db-start db-stop db-check db-drop db-up db-revision stop run
 
-# Pehli baar: Postgres container banata hai (port 5440).
+# First time only: create the Postgres container (port 5440).
 db-init:
 	@docker run -d --name $(DB_CONTAINER) \
 		-e POSTGRES_USER=calendar -e POSTGRES_PASSWORD=calendar -e POSTGRES_DB=campus_calendar \
 		-p 5440:5432 postgres:16-alpine
 
-# Container chalu / band.
+# Start / stop the container.
 db-start:
 	@docker start $(DB_CONTAINER)
 
 db-stop:
 	@docker stop $(DB_CONTAINER)
 
-# DB judta hai ya nahi, aur kitni tables hain.
+# Does the database answer, and how many tables does it have.
 db-check:
 	@PYTHONPATH=. $(PY) setup/check_db.py
 
-# Database delete kar deta hai.
+# Delete the database.
 db-drop:
 	@PYTHONPATH=. $(PY) setup/drop_db.py --yes
 
-# Model badla ho to nayi migration banao.
+# Create a new migration after a model change.
 db-revision:
 	@PYTHONPATH=. .venv/bin/alembic -c setup/alembic.ini revision --autogenerate -m "$(m)"
 
-# Database + saari tables + settings ki ek row — data khali.
+# Database + every table + one settings row — no data.
 db-up:
 	@PYTHONPATH=. $(PY) setup/init_db.py
 
 API_PORT = 8001
 
-# Port 8001 par jo bhi chal raha ho use band karo.
+# Stop whatever is holding port 8001.
 stop:
-	@fuser -s -k $(API_PORT)/tcp 2>/dev/null && echo "purana server band kiya" || echo "koi server chal nahi raha tha"
+	@fuser -s -k $(API_PORT)/tcp 2>/dev/null && echo "stopped the old server" || echo "nothing was running"
 
-# Purana band karke naya chalu karo (http://127.0.0.1:8001).
+# Stop the old server, then start a fresh one (http://127.0.0.1:8001).
 run: stop
 	@sleep 1
 	@PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port $(API_PORT) --reload

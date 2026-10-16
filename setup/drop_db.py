@@ -41,7 +41,7 @@ def main() -> int:
     admin_url, name = split_url(DATABASE_URL)
     drop(admin_url, name)
     print(f"database deleted: {name}")
-    print("wapas banane ke liye: make db-up")
+    print("run `make db-up` to build it again")
 
     return 0
 
