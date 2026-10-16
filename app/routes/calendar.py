@@ -21,6 +21,7 @@ from app.services import calendar_service, live_stream
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
 
+# Returns every event and reminder the signed-in user is allowed to see.
 @router.get("/events", response_model=list[EventOut])
 def list_events(
     user: HardcodedUser = Depends(current_user),
@@ -29,11 +30,13 @@ def list_events(
     return calendar_service.list_items(db, user)
 
 
+# Tells the TPO how many students match an audience before the event is created.
 @router.post("/audience/count", response_model=AudienceCountOut)
 def count_audience(payload: AudienceCountIn, _: HardcodedUser = Depends(require_role(TPO))) -> AudienceCountOut:
     return AudienceCountOut(count=calendar_service.audience_count(payload.audience))
 
 
+# Creates an event (TPO only) or a private reminder, then wakes up every open calendar.
 @router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
 def create_event(
     payload: EventIn,
@@ -49,6 +52,7 @@ def create_event(
     return created
 
 
+# Edits an existing event or the owner's own reminder.
 @router.put("/events/{event_id}", response_model=EventOut)
 def update_event(
     event_id: str,
@@ -71,6 +75,7 @@ def update_event(
     return updated
 
 
+# Cancels an event with a reason; the item stays on the calendar as cancelled.
 @router.post("/events/{event_id}/cancel", response_model=EventOut)
 def cancel_event(
     event_id: str,
@@ -88,6 +93,7 @@ def cancel_event(
     return cancelled
 
 
+# Permanently deletes one reminder, or a cancelled event the TPO created.
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_one(
     event_id: str,
@@ -106,6 +112,7 @@ def delete_one(
     live_stream.publish(user.org_id, event_id)
 
 
+# Permanently deletes several items in one call and reports what was skipped.
 @router.post("/events/bulk-delete", response_model=DeleteOut)
 def delete_many(
     payload: DeleteManyIn,
@@ -118,6 +125,7 @@ def delete_many(
     return DeleteOut(deleted=result["deleted"], skipped=result["skipped"], count=len(result["deleted"]))
 
 
+# Wipes the org's events and the caller's own reminders; needs ?confirm=yes.
 @router.delete("/events", response_model=DeleteOut)
 def delete_all(
     confirm: str = "",
@@ -133,6 +141,7 @@ def delete_all(
     return DeleteOut(count=count)
 
 
+# Returns the signed-in student's notifications, newest first.
 @router.get("/notifications", response_model=list[NotificationOut])
 def list_notifications(
     user: HardcodedUser = Depends(current_user),
@@ -141,6 +150,7 @@ def list_notifications(
     return calendar_service.notifications_for(db, user)
 
 
+# Marks one notification as read.
 @router.post("/notifications/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT)
 def read_notification(
     notification_id: str,
@@ -150,6 +160,7 @@ def read_notification(
     calendar_service.mark_seen(db, user, notification_id)
 
 
+# Marks every notification of the user as read.
 @router.post("/notifications/read-all", status_code=status.HTTP_204_NO_CONTENT)
 def read_all_notifications(
     user: HardcodedUser = Depends(current_user),
@@ -158,6 +169,7 @@ def read_all_notifications(
     calendar_service.mark_all_seen(db, user)
 
 
+# Keeps an SSE connection open so a calendar refreshes the moment anything changes.
 @router.get("/stream")
 async def stream(request: Request) -> StreamingResponse:
     token = request.query_params.get("token", "")
