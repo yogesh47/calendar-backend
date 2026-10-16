@@ -1,5 +1,8 @@
 # Campus Calendar — Backend
 
+> Naya banda repo chala raha hai? Seedha [`../SETUP.md`](../SETUP.md) kholo —
+> install se login tak sab wahin hai.
+
 Ye folder batata hai ki backend **kis order me** bana, aur har step me **kya
 command chali**. Koi step chhoot jaye to seedha us file par jao.
 
@@ -13,6 +16,7 @@ docs/
 ├── 05-run-and-verify.md     sab chalana aur jaanchna
 ├── 06-commands-reference.md har flag ka matlab
 ├── 07-api-reference.md      kaunsi API kis cheez ke liye hai
+├── 08-libraries.md          kaun si library, kyun aur kahan
 ├── credentials.md           login, DB, ports
 ├── tables/
 │   ├── calendar_event.md    har column kyun hai
