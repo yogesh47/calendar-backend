@@ -26,10 +26,12 @@ def run_tick() -> dict[str, int]:
 
 
 # The loop itself — never dies, just logs and waits for the next tick.
+# The tick talks to the database, which blocks, so it runs in a worker thread:
+# inside the event loop a slow or missing database would freeze every request.
 async def nudge_loop() -> None:
     while True:
         try:
-            run_tick()
+            await asyncio.to_thread(run_tick)
         except Exception:
             LOGGER.exception("nudge tick failed")
 

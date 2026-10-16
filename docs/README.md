@@ -1,66 +1,41 @@
-# Campus Calendar — Backend
+# Campus Calendar — Backend docs
 
-> Naya banda repo chala raha hai? Seedha [`../SETUP.md`](../SETUP.md) kholo —
-> install se login tak sab wahin hai.
-
-Ye folder batata hai ki backend **kis order me** bana, aur har step me **kya
-command chali**. Koi step chhoot jaye to seedha us file par jao.
+> Repo pehli baar chala rahe ho? Seedha [`../setup/README.md`](../setup/README.md) —
+> container, DB aur backend run karne ka pura kram wahin hai. DB khali karna ho to
+> [`../setup/db-drop-up.md`](../setup/db-drop-up.md), schema badalna ho to
+> [`../setup/migrations.md`](../setup/migrations.md).
 
 ```
 docs/
-├── README.md                ← ye file
-├── 01-project-setup.md      folder, venv, dependencies
-├── 02-database.md           DB banana, connection
-├── 03-tables.md             tables + settings ki ek row
-├── 04-auth-login.md         do hardcoded user, JWT, /auth/login
-├── 05-run-and-verify.md     sab chalana aur jaanchna
-├── 06-commands-reference.md har flag ka matlab
-├── 07-api-reference.md      kaunsi API kis cheez ke liye hai
-├── 08-libraries.md          kaun si library, kyun aur kahan
-├── credentials.md           login, DB, ports
-├── tables/
-│   ├── calendar_event.md    har column kyun hai
-│   └── columns.md           shared column helpers
+├── README.md            ← ye file
+├── api-reference.md     kaunsi API kis cheez ke liye hai
+├── schema.md            tables, columns aur unke peeche ki wajah
+├── libraries.md         kaun si library, kyun aur kahan
+├── credentials.md       logins, DB, ports
 └── flows/
-    ├── tpo-event.md         TPO kya karta hai, kya hota hai
-    ├── create-event.md      create event — line by line, frontend se DB tak
-    └── nudges.md            nudge kab, kahan se, kaise jaata hai
+    ├── create-event.md  event banne ka pura flow, line by line
+    ├── nudges.md        nudge kab, kahan se, kaise jaata hai
+    └── tpo-event.md     TPO kya karta hai, kya hota hai
 ```
 
-## Abhi tak kya ban chuka hai
+## Kya ban chuka hai
 
-| # | Step | Haal |
+| # | Hissa | Haal |
 |---|---|---|
-| 1 | Project setup — folder + venv + deps | ✅ |
-| 2 | DB creation + connection | ✅ |
-| 3 | 7 tables + settings row | ✅ |
-| 4 | Chaar hardcoded user (2 TPO, student, super admin) + login API | ✅ |
-| 5 | End-to-end verify (13 checks) | ✅ |
-| 6 | Calendar API — events, reminders, notifications, SSE | ✅ |
-| 7 | Super Admin settings (FR-CAL-27) | ✅ |
-| 8 | Nudge engine (FR-CAL-25 / 26) — [`flows/nudges.md`](flows/nudges.md) | ✅ |
-| 9 | Mobile ke liye API (coming-up, unread-count, push devices, date range) | ✅ |
+| 1 | Postgres + Alembic migration (`initial setup`) | ✅ |
+| 2 | Chaar hardcoded user (2 TPO, student, super admin) + JWT login | ✅ |
+| 3 | Calendar API — events, reminders, deadlines, notifications, SSE | ✅ |
+| 4 | Super Admin settings (FR-CAL-27) | ✅ |
+| 5 | Nudge engine (FR-CAL-25 / 26) — [`flows/nudges.md`](flows/nudges.md) | ✅ |
+| 6 | Mobile ke liye API (coming-up, unread-count, push devices, date range) | ✅ |
 
-Har endpoint ka matlab [`07-api-reference.md`](07-api-reference.md) me hai.
+## Product ka sach kahan hai
 
-> Kisi bhi command me `-d`, `-it`, `-U`, `\dt`, `--strictPort` jaisa kuch samajh
-> na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho — in
-> docs me jo bhi flag use hua hai, sabka matlab wahan hai.
-
-## Design ka sach kahan hai
-
-Ye docs **kaise banaya** batate hain. **Kya banana hai** uska sach
+Ye docs **kaise bana** batate hain. **Kya banana hai** uska sach
 `calendar-frontend/docs/` me hai:
 
-| Sawaal | Kahan |
+| File | Kya |
 |---|---|
-| DB, API, scheduler ka design | `campus-calendar-backend-design.md` |
-| Behaviour kya ho | `requirements/campus-calendar-brd.md` |
-| Dikhega kaisa | `requirements/campus-calendar-ui-spec.md` |
-
-## Teen niyam jo har step me lage
-
-1. **Doosri service ke id par FK nahi** — `student_id`, `company_id`, job ids
-   hamare DB me nahi hain, isliye unpar foreign key nahi lagti
-2. **DB me UTC** — all-day cheezein `DATE` me, `timestamp` me nahi
-3. **Code me comment nahi** — naam khud bol dein
+| `requirements/campus-calendar-brd.md` | BRD — FR-CAL-01 se 27 |
+| `campus-calendar-backend-design.md` | backend ka design |
+| `campus-calendar-master.md` | poora master doc |

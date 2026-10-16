@@ -123,7 +123,7 @@ rows = db.scalars(
 ```
 
 **Alembic kyun nahi:** abhi tables `Base.metadata.create_all()` se bante hain
-(`scripts/init_db.py`). Production me migrations chahiye honge — tab Alembic
+(`setup/init_db.py`). Production me migrations chahiye honge — tab Alembic
 jodna hoga.
 
 ---

@@ -15,15 +15,13 @@ Chahiye: **Python 3.10+**, **Node 20+**, **Docker**.
 ## 1. Database
 
 ```bash
-docker run -d --name campus-calendar-db \
-  -e POSTGRES_USER=calendar \
-  -e POSTGRES_PASSWORD=calendar \
-  -e POSTGRES_DB=campus_calendar \
-  -p 5440:5432 \
-  postgres:16-alpine
+cd calendar-backend
+
+make db-init      # sirf pehli baar — Postgres container (port 5440)
+make db-start     # uske baad har baar
 ```
 
-Container pehle se bana ho to sirf: `docker start campus-calendar-db`
+Kaam khatam hone par: `make db-stop`
 
 ---
 
@@ -35,15 +33,16 @@ cd calendar-backend
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env
 
-cp .env.example .env               # default values waise hi theek hain
-
-PYTHONPATH=. python scripts/init_db.py     # tables + settings ki ek row
-
-PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+make db-check                      # DB hai ya nahi
+make db-up                         # na ho to bana lo
+make run                           # API chalu
 ```
 
 Check: `curl http://127.0.0.1:8001/health` → `{"status":"ok","database":"up"}`
+
+Detail: [`setup/README.md`](setup/README.md)
 
 ---
 
@@ -66,7 +65,18 @@ Kholo: **http://localhost:5180**
 
 ---
 
-## 4. Login
+## 4. Data saaf karna ho (kabhi bhi)
+
+```bash
+make db-drop     # database delete
+make db-up       # database + saari tables + settings row, data khali
+```
+
+Detail: [`setup/db-drop-up.md`](setup/db-drop-up.md)
+
+---
+
+## 5. Login
 
 | Role | Email | Password |
 |---|---|---|
