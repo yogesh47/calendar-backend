@@ -8,16 +8,19 @@ docs/
 ├── README.md                ← ye file
 ├── 01-project-setup.md      folder, venv, dependencies
 ├── 02-database.md           DB banana, connection
-├── 03-tables.md             6 tables + settings ki ek row
+├── 03-tables.md             tables + settings ki ek row
 ├── 04-auth-login.md         do hardcoded user, JWT, /auth/login
 ├── 05-run-and-verify.md     sab chalana aur jaanchna
 ├── 06-commands-reference.md har flag ka matlab
+├── 07-api-reference.md      kaunsi API kis cheez ke liye hai
 ├── credentials.md           login, DB, ports
 ├── tables/
 │   ├── calendar_event.md    har column kyun hai
 │   └── columns.md           shared column helpers
 └── flows/
-    └── tpo-event.md         TPO kya karta hai, kya hota hai
+    ├── tpo-event.md         TPO kya karta hai, kya hota hai
+    ├── create-event.md      create event — line by line, frontend se DB tak
+    └── nudges.md            nudge kab, kahan se, kaise jaata hai
 ```
 
 ## Abhi tak kya ban chuka hai
@@ -26,9 +29,15 @@ docs/
 |---|---|---|
 | 1 | Project setup — folder + venv + deps | ✅ |
 | 2 | DB creation + connection | ✅ |
-| 3 | 6 tables + settings row | ✅ |
-| 4 | Do hardcoded user + login API | ✅ |
+| 3 | 7 tables + settings row | ✅ |
+| 4 | Chaar hardcoded user (2 TPO, student, super admin) + login API | ✅ |
 | 5 | End-to-end verify (13 checks) | ✅ |
+| 6 | Calendar API — events, reminders, notifications, SSE | ✅ |
+| 7 | Super Admin settings (FR-CAL-27) | ✅ |
+| 8 | Nudge engine (FR-CAL-25 / 26) — [`flows/nudges.md`](flows/nudges.md) | ✅ |
+| 9 | Mobile ke liye API (coming-up, unread-count, push devices, date range) | ✅ |
+
+Har endpoint ka matlab [`07-api-reference.md`](07-api-reference.md) me hai.
 
 > Kisi bhi command me `-d`, `-it`, `-U`, `\dt`, `--strictPort` jaisa kuch samajh
 > na aaye to [`06-commands-reference.md`](06-commands-reference.md) dekho — in

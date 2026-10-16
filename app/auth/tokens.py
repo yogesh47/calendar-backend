@@ -14,7 +14,7 @@ def issue_token(user: HardcodedUser) -> tuple[str, int]:
         "role": user.role,
         "email": user.email,
         "name": user.name,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRY_MINUTES),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRY_MINUTES),  # noqa: UP017
     }
 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM), expires_in

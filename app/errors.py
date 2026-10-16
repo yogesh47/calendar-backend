@@ -18,6 +18,13 @@ FIELD_NAMES = {
     "note": "Note",
     "audience": "Audience",
     "reason": "Reason",
+    "event_reminder_days_before": "Event Reminder: days before",
+    "event_reminder_hours_before": "Event Reminder: hours before",
+    "deadline_reminder_days_before": "Deadline Reminder: days before",
+    "deadline_reminder_same_day": "Deadline Reminder: same day",
+    "daily_nudge_limit": "Daily nudge limit per student",
+    "quiet_hours_start": "Quiet hours start",
+    "quiet_hours_end": "Quiet hours end",
 }
 
 
@@ -36,13 +43,20 @@ def readable(error: dict) -> str:
     if kind == "missing":
         return f"{field_label(tuple(error.get('loc', ())))} is required"
 
-    if kind.startswith("string_too_long") or kind.startswith("too_long"):
+    if kind.startswith(("string_too_long", "too_long")):
         return f"{field_label(tuple(error.get('loc', ())))} is too long"
+
+    if kind in ("less_than_equal", "greater_than_equal", "less_than", "greater_than"):
+        limits = error.get("ctx", {})
+        edge = limits.get("le", limits.get("ge", limits.get("lt", limits.get("gt"))))
+        word = "or less" if kind.startswith("less") else "or more"
+
+        return f"{field_label(tuple(error.get('loc', ())))} must be {edge} {word}"
 
     if kind in ("literal_error", "enum"):
         return f"{field_label(tuple(error.get('loc', ())))} has an unexpected value"
 
-    if kind.endswith("_parsing") or kind.endswith("_type"):
+    if kind.endswith(("_parsing", "_type")):
         return f"{field_label(tuple(error.get('loc', ())))} is not valid"
 
     return message or FALLBACK

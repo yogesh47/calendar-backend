@@ -25,7 +25,7 @@ def main() -> int:
                     "where table_schema = 'public'"
                 )
             ).scalar_one()
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - the script reports any failure in one clean message
         print("DB CONNECTION FAILED")
         print(f"  url    : {safe_url(DATABASE_URL)}")
         print(f"  reason : {type(error).__name__}: {str(error).splitlines()[0]}")

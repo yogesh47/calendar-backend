@@ -5,6 +5,7 @@ from app.conf import DEFAULT_ORG_ID
 
 TPO = "tpo"
 STUDENT = "student"
+SUPER_ADMIN = "super_admin"
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,22 @@ HARDCODED_USERS = (
         email="tpo@campus.test",
         role=TPO,
         password="tpo@1234",
+    ),
+    HardcodedUser(
+        user_id="44444444-4444-4444-4444-444444444444",
+        org_id=DEFAULT_ORG_ID,
+        name="Arjun Mehta",
+        email="tpo2@campus.test",
+        role=TPO,
+        password="tpo2@1234",
+    ),
+    HardcodedUser(
+        user_id="55555555-5555-5555-5555-555555555555",
+        org_id=DEFAULT_ORG_ID,
+        name="Meera Iyer",
+        email="admin@campus.test",
+        role=SUPER_ADMIN,
+        password="admin@1234",
     ),
     HardcodedUser(
         user_id="33333333-3333-3333-3333-333333333333",

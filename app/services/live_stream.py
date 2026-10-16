@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 _listeners: dict[str, set[asyncio.Queue]] = {}
 
@@ -29,7 +29,7 @@ async def stream(org_id: str, queue: asyncio.Queue) -> AsyncIterator[str]:
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=20)
                 yield f"event: calendar\ndata: {message}\n\n"
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError:  # noqa: UP041 - on Python 3.10 this is not the builtin TimeoutError
                 yield ": keep-alive\n\n"
     finally:
         unsubscribe(org_id, queue)

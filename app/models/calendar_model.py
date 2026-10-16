@@ -148,6 +148,23 @@ class EventOut(BaseModel):
     linked_type: str | None = None
     linked_id: str | None = None
     is_owner: bool
+    applies_to_me: bool = True
+    removed_reason: str | None = None
+
+
+class DeviceIn(BaseModel):
+    token: str = Field(min_length=8, max_length=255)
+    platform: Literal["android", "ios", "web"]
+
+
+class DeviceOut(BaseModel):
+    device_id: str
+    platform: str
+    created_at: datetime
+
+
+class UnreadOut(BaseModel):
+    unread: int
 
 
 class NotificationOut(BaseModel):
@@ -156,3 +173,4 @@ class NotificationOut(BaseModel):
     message: str
     created_at: datetime
     is_read: bool
+    kind: str = "new_event"

@@ -1,12 +1,25 @@
 import uuid
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.users import HardcodedUser, TPO, find_by_id
-from app.db.models import CalendarEvent, CalendarEventAudience, CalendarEventRecipient, CalendarReminder
-from app.models.calendar_model import AudienceIn, EventIn, EventOut, LinkedJobIn, NotificationOut
+from app.auth.users import TPO, HardcodedUser, find_by_id
+from app.db.models import (
+    CalendarEvent,
+    CalendarEventAudience,
+    CalendarEventRecipient,
+    CalendarNudge,
+    CalendarReminder,
+)
+from app.models.calendar_model import (
+    AudienceIn,
+    EventIn,
+    EventOut,
+    LinkedJobIn,
+    NotificationOut,
+)
+from app.services import deadlines, nudges
 from app.services.clock import local_date, local_time, to_utc
 from app.services.companies import company_id_of, company_name_of
 from app.services.students import count_audience, matching_student_ids
@@ -20,7 +33,7 @@ CANCEL_REASON_LABEL = {
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)  # noqa: UP017 - datetime.UTC needs Python 3.11
 
 
 def _text(value: time | None) -> str | None:
@@ -52,8 +65,18 @@ def _recipient_count(db: Session, event_id) -> int:
     )
 
 
+def _recipient_of(db: Session, event_id, student_id: str) -> CalendarEventRecipient | None:
+    return db.scalar(
+        select(CalendarEventRecipient).where(
+            CalendarEventRecipient.event_id == event_id,
+            CalendarEventRecipient.student_id == student_id,
+        )
+    )
+
+
 def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> EventOut:
     audience = _audience_of(db, event.event_id)
+    mine = _recipient_of(db, event.event_id, viewer.user_id) if viewer.role != TPO else None
     linked = None
     if event.linked_job_kind:
         linked = LinkedJobIn(
@@ -105,6 +128,8 @@ def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> Event
         else None,
         linked_job=linked,
         is_owner=str(event.created_by) == viewer.user_id,
+        applies_to_me=mine.state == "active" if mine else True,
+        removed_reason=mine.removed_reason if mine and mine.state == "removed" else None,
     )
 
 
@@ -141,17 +166,64 @@ def reminder_out(reminder: CalendarReminder, viewer: HardcodedUser) -> EventOut:
     )
 
 
-def list_items(db: Session, viewer: HardcodedUser) -> list[EventOut]:
+def nudge_out(db: Session, row) -> EventOut:
+    moment = row.sent_at or row.scheduled_at
+
+    return EventOut(
+        event_id=str(row.nudge_id),
+        event_type="nudge",
+        title=nudges.message_for(db, row),
+        company=None,
+        event_date=local_date(moment),
+        end_date=local_date(moment),
+        start_time=local_time(moment),
+        end_time=None,
+        mode=None,
+        venue=None,
+        online_platform=None,
+        description=None,
+        note=None,
+        status="published",
+        cancel_reason=None,
+        cancel_note=None,
+        cancelled_at=None,
+        created_by=str(row.student_id),
+        created_by_name="7Seers",
+        created_at=moment,
+        updated_at=moment,
+        notified_count=0,
+        audience=None,
+        linked_job=None,
+        remind_before=None,
+        linked_type="event" if row.item_type == "event" else "job_deadline",
+        linked_id=str(row.item_id),
+        is_owner=True,
+    )
+
+
+def within(items: list[EventOut], start: date | None, end: date | None) -> list[EventOut]:
+    return [
+        item
+        for item in items
+        if (start is None or (item.end_date or item.event_date) >= start)
+        and (end is None or item.event_date <= end)
+    ]
+
+
+def list_items(
+    db: Session,
+    viewer: HardcodedUser,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[EventOut]:
     events = list(db.scalars(select(CalendarEvent).where(CalendarEvent.org_id == viewer.org_id)))
+    sent_nudges = []
 
     if viewer.role != TPO:
         mine = {
             str(row.event_id)
             for row in db.scalars(
-                select(CalendarEventRecipient).where(
-                    CalendarEventRecipient.student_id == viewer.user_id,
-                    CalendarEventRecipient.state == "active",
-                )
+                select(CalendarEventRecipient).where(CalendarEventRecipient.student_id == viewer.user_id)
             )
         }
         events = [
@@ -159,14 +231,37 @@ def list_items(db: Session, viewer: HardcodedUser) -> list[EventOut]:
             for event in events
             if str(event.event_id) in mine and event.cancel_reason != "created_by_mistake"
         ]
+        sent_nudges = nudges.sent_for(db, viewer.user_id)
 
     reminders = list(
         db.scalars(select(CalendarReminder).where(CalendarReminder.owner_id == viewer.user_id))
     )
 
-    return [event_out(db, event, viewer) for event in events] + [
-        reminder_out(reminder, viewer) for reminder in reminders
+    items = (
+        [event_out(db, event, viewer) for event in events]
+        + [reminder_out(reminder, viewer) for reminder in reminders]
+        + [nudge_out(db, row) for row in sent_nudges]
+        + deadlines.deadline_items(viewer)
+    )
+
+    return within(items, start, end)
+
+
+# The mobile "Coming Up" card: the next few items the viewer still cares about.
+def coming_up(db: Session, viewer: HardcodedUser, limit: int = 3) -> list[EventOut]:
+    today = local_date(_now())
+    upcoming = [
+        item
+        for item in list_items(db, viewer, start=today)
+        if item.status != "cancelled" and item.applies_to_me and item.event_type != "nudge"
     ]
+    upcoming.sort(key=lambda item: (item.event_date, item.start_time or "00:00"))
+
+    return upcoming[:limit]
+
+
+def unread_count(db: Session, viewer: HardcodedUser) -> int:
+    return len([entry for entry in notifications_for(db, viewer) if not entry.is_read])
 
 
 def sync_recipients(db: Session, event: CalendarEvent, audience: AudienceIn) -> None:
@@ -231,6 +326,7 @@ def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut
         db.add(reminder)
         db.commit()
         db.refresh(reminder)
+        nudges.schedule_for_reminder(db, reminder)
 
         return reminder_out(reminder, user)
 
@@ -253,6 +349,7 @@ def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut
 
     db.commit()
     db.refresh(event)
+    nudges.schedule_for_event(db, event)
 
     return event_out(db, event, user)
 
@@ -271,12 +368,16 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
         reminder.linked_id = uuid.UUID(payload.linked_id) if payload.linked_id else None
         db.commit()
         db.refresh(reminder)
+        nudges.schedule_for_reminder(db, reminder)
 
         return reminder_out(reminder, user)
 
     event = db.get(CalendarEvent, uuid.UUID(event_id))
     if not event:
         raise LookupError("Event not found")
+
+    if str(event.created_by) != user.user_id:
+        raise PermissionError("Only the TPO who created this event can edit it")
 
     apply_payload(event, payload)
 
@@ -291,6 +392,7 @@ def update_event(db: Session, user: HardcodedUser, event_id: str, payload: Event
 
     db.commit()
     db.refresh(event)
+    nudges.schedule_for_event(db, event)
 
     return event_out(db, event, user)
 
@@ -300,6 +402,9 @@ def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, n
     if not event:
         raise LookupError("Event not found")
 
+    if str(event.created_by) != user.user_id:
+        raise PermissionError("Only the TPO who created this event can cancel it")
+
     event.status = "cancelled"
     event.cancel_reason = reason
     event.cancel_note = note
@@ -307,6 +412,7 @@ def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, n
     event.cancelled_at = _now()
     db.commit()
     db.refresh(event)
+    nudges.schedule_for_event(db, event)
 
     return event_out(db, event, user)
 
@@ -327,6 +433,7 @@ def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
     if reminder:
         if str(reminder.owner_id) != user.user_id:
             raise PermissionError("Only the owner can delete this reminder")
+        db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
         db.delete(reminder)
         db.commit()
 
@@ -341,6 +448,7 @@ def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
 
     db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == key).delete()
     db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == key).delete()
+    db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
     db.delete(event)
     db.commit()
 
@@ -370,9 +478,11 @@ def delete_everything(db: Session, user: HardcodedUser) -> int:
     for event in events:
         db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == event.event_id).delete()
         db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == event.event_id).delete()
+        db.query(CalendarNudge).filter(CalendarNudge.item_id == event.event_id).delete()
         db.delete(event)
 
     for reminder in reminders:
+        db.query(CalendarNudge).filter(CalendarNudge.item_id == reminder.reminder_id).delete()
         db.delete(reminder)
 
     db.commit()
@@ -395,17 +505,22 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
 
         start = f", {local_time(event.start_at)}" if event.start_at else ""
         if event.status == "cancelled" and event.cancel_reason == "created_by_mistake":
+            kind = "ignore_earlier"
             message = f"Please ignore the earlier notification about {event.title}."
         elif event.status == "cancelled":
+            kind = "event_cancelled"
             message = (
                 f"{event.title} on {event.event_date:%d %b} has been cancelled. "
                 f"Reason: {CANCEL_REASON_LABEL.get(event.cancel_reason or '', 'Other')}."
             )
         elif row.state == "removed":
+            kind = "not_applicable"
             message = f"{event.title} on {event.event_date:%d %b} no longer applies to you."
         elif event.updated_at > event.created_at:
+            kind = "event_updated"
             message = f"{event.title} has been updated."
         else:
+            kind = "new_event"
             message = f"New event: {event.title} on {event.event_date:%d %b}{start}. Check your Campus Calendar."
 
         changed_at = event.cancelled_at or event.updated_at
@@ -416,6 +531,19 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
                 message=message,
                 created_at=changed_at,
                 is_read=bool(row.seen_at and row.seen_at >= changed_at),
+                kind=kind,
+            )
+        )
+
+    for nudge in nudges.sent_for(db, viewer.user_id):
+        out.append(
+            NotificationOut(
+                notification_id=str(nudge.nudge_id),
+                event_id=str(nudge.item_id),
+                message=nudges.message_for(db, nudge),
+                created_at=nudge.sent_at or nudge.scheduled_at,
+                is_read=bool(nudge.seen_at),
+                kind=nudge.nudge_type,
             )
         )
 
@@ -423,7 +551,8 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
 
 
 def mark_seen(db: Session, viewer: HardcodedUser, notification_id: str) -> None:
-    row = db.get(CalendarEventRecipient, uuid.UUID(notification_id))
+    key = uuid.UUID(notification_id)
+    row = db.get(CalendarEventRecipient, key) or db.get(CalendarNudge, key)
     if not row or str(row.student_id) != viewer.user_id:
         return
 
@@ -437,4 +566,8 @@ def mark_all_seen(db: Session, viewer: HardcodedUser) -> None:
     )
     for row in rows:
         row.seen_at = _now()
+
+    for nudge in nudges.sent_for(db, viewer.user_id):
+        nudge.seen_at = _now()
+
     db.commit()

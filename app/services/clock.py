@@ -10,7 +10,7 @@ def to_utc(day: date, wall_clock: time | None) -> datetime | None:
     if not wall_clock:
         return None
 
-    return datetime.combine(day, wall_clock, tzinfo=ORG_TIMEZONE).astimezone(timezone.utc)
+    return datetime.combine(day, wall_clock, tzinfo=ORG_TIMEZONE).astimezone(timezone.utc)  # noqa: UP017 - datetime.UTC needs Python 3.11
 
 
 def local_time(moment: datetime | None) -> str | None:

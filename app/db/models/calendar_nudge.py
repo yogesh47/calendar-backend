@@ -27,3 +27,4 @@ class CalendarNudge(Base):
     sent_at = columns.moment()
     status = columns.text(20, nullable=False, default="scheduled")
     skip_reason = columns.text(200)
+    seen_at = columns.moment()
