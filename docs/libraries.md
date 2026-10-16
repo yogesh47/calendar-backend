@@ -1,14 +1,14 @@
 # Backend ki libraries — kaun si, kyun, aur kahan
 
-`requirements.txt` me 10 lines hain. Har ek yahan samjhayi hai: **kya karti hai**,
+`requirements.txt` me 9 lines hain. Har ek yahan samjhayi hai: **kya karti hai**,
 **kyun chuni gayi**, **code me kahan dikhti hai**, aur **na hoti to kya karna
 padta**.
 
 ```
-fastapi==0.115.2            sqlalchemy==2.0.36        PyJWT==2.8.0
-uvicorn[standard]==0.32.0   psycopg2-binary==2.9.10   python-dateutil==2.9.0.post0
-pydantic==2.10.3            python-dotenv==1.0.1      tzdata==2024.2
-pydantic-settings==2.6.1
+fastapi==0.115.2            psycopg2-binary==2.9.10   PyJWT==2.8.0
+uvicorn[standard]==0.32.0   pydantic==2.10.3          tzdata==2024.2
+sqlalchemy==2.0.36          python-dotenv==1.0.1
+alembic==1.20.0
 ```
 
 Version pin isliye hain ki kal `pip install` karne par koi aur version aakar
@@ -128,7 +128,22 @@ jodna hoga.
 
 ---
 
-## 5. `psycopg2-binary` — Postgres ka asli driver
+## 5. `alembic` — schema ka itihaas
+
+**Kya karti hai:** har schema badlav ek file me rakhti hai
+(`setup/migrations/versions/`) aur DB me likh deti hai ki kaun si chal chuki hai.
+
+**Kyun:** `create_all()` sirf nayi tables banata hai — purane DB me naya column
+nahi jodta. Alembic se `make db-up` har DB par chalta hai: khali DB par poora
+schema, purane DB par sirf jo missing hai. Detail
+[`../setup/migrations.md`](../setup/migrations.md).
+
+**Kahan:** `setup/alembic.ini`, `setup/migrations/env.py`, aur `setup/init_db.py`
+jo `upgrade head` chalata hai.
+
+---
+
+## 6. `psycopg2-binary` — Postgres ka asli driver
 
 **Kya karti hai:** SQLAlchemy khud Postgres se nahi judti; ye driver TCP par
 Postgres protocol bolta hai.
@@ -142,7 +157,7 @@ Postgres protocol bolta hai.
 
 ---
 
-## 6. `python-dotenv` — `.env` padhne ke liye
+## 7. `python-dotenv` — `.env` padhne ke liye
 
 **Kya karti hai:** `.env` file ko process ke environment me load kar deti hai,
 taaki `environ.get("DATABASE_URL")` kaam kare.
@@ -155,7 +170,7 @@ deta hai ki kaun si key chahiye).
 
 ---
 
-## 7. `PyJWT` — login ka token
+## 8. `PyJWT` — login ka token
 
 **Kya karti hai:** user ki details ko sign karke ek token banati hai
 (`issue_token`), aur wapas aane par signature check karke padhti hai
@@ -180,7 +195,7 @@ return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM), expires_in
 
 ---
 
-## 8. `tzdata` — timezone ka data
+## 9. `tzdata` — timezone ka data
 
 **Kya karti hai:** `zoneinfo.ZoneInfo("Asia/Kolkata")` ko chalne ke liye IANA
 timezone database chahiye; Linux par wo system me hota hai, par Windows/slim
@@ -196,36 +211,11 @@ girti.
 
 ---
 
-## 9. `pydantic-settings` — abhi use nahi ho rahi
-
-`app/conf.py` seedha `environ.get(...)` use karta hai, isliye ye package filhal
-**bekaar pada hai**. Do raaste:
-
-* hata do — ek line kam, ya
-* `conf.py` ko `BaseSettings` class me badal do (tab har setting ka type aur
-  default ek jagah type-checked ho jaayega).
-
-Abhi tak `requirements.txt` me isliye bachi hai ki setup ke waqt soch thi
-settings class banane ki.
-
----
-
-## 10. `python-dateutil` — abhi use nahi ho rahi
-
-Date ka saara kaam Python ke apne `datetime` + `zoneinfo` se ho jaata hai
-(`clock.py`, `nudges.py`). `dateutil` ki zaroorat tab padti jab dhundhli dates
-parse karni hoti ("next tuesday") ya `rrule` se repeat events banane hote.
-
-**Repeat events (abhi BRD me nahi hain)** jab aayenge, tab iski `rrule` kaam
-aayegi — isliye list me chhodi hai.
-
----
-
 ## Dev ke liye (requirements me nahi)
 
 | Tool | Kaam | Install |
 |---|---|---|
-| `ruff` | lint + import order (`ruff check app scripts`) | `pip install ruff` |
+| `ruff` | lint + import order (`ruff check app setup`) | `pip install ruff` |
 | `playwright-core` | browser test scripts (frontend repo me) | frontend ka `npm install` |
 
 Ye runtime deps nahi hain, isliye `requirements.txt` se bahar rakhe hain.
@@ -240,9 +230,8 @@ Ye runtime deps nahi hain, isliye `requirements.txt` se bahar rakhe hain.
 | uvicorn[standard] | app ko chalane wala tez ASGI server (SSE aur reload ke saath) |
 | pydantic | har niyam ek hi jagah, aur error ka message pehle se insaani |
 | sqlalchemy | tables code me, query Python me, transaction safe |
+| alembic | schema ka itihaas — purane DB par sirf missing cheez jodti hai |
 | psycopg2-binary | Postgres ka driver, bina compile kiye install |
 | python-dotenv | secrets `.env` me, code me nahi |
 | PyJWT | stateless login — web aur mobile ek hi API par |
 | tzdata | IST ↔ UTC ka hisaab har machine par sahi |
-| pydantic-settings | abhi unused — settings class banegi to kaam aayegi |
-| python-dateutil | abhi unused — repeat events ke liye rakhi hai |

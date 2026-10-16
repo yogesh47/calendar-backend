@@ -5,30 +5,139 @@ kaise, wo [`../setup/migrations.md`](../setup/migrations.md) me hai.
 
 ---
 
-## 1. Saari tables ek nazar me
+## 1. Saat tables — kaun si aur kyun
 
-## Kaun si 6 tables
+| # | Table | Kya rakhti hai | Alag table kyun |
+|---|---|---|---|
+| 1 | `calendar_event` | TPO ka banaya event — type, title, date, time, mode, venue, status, cancel ka byora, kya badla | har cheez ka kendra; baaki tables isi se judti hain |
+| 2 | `calendar_event_audience` | ek event ke liye ek row — opportunity type, courses, batches, departments | audience list hai (array), event row me thoosne par har query bhaari ho jaati; alag rehne se audience badalna bhi aasan |
+| 3 | `calendar_event_recipient` | publish ke waqt freeze hui student list, `active` / `removed`, `seen_at` | audience **niyam** hai, recipient **nateeja**. Niyam baad me badle to bhi purane student ka record (aur uska "no longer applicable") bacha rehta hai. Read bhi tez — student ko apne event ek index se mil jaate hain |
+| 4 | `calendar_reminder` | TPO aur student dono ke niji My Reminders | ye kisi audience ke nahi hote, na notification bhejte hain. Event table me daalte to har query me "ye niji to nahi?" wali shart lagani padti |
+| 5 | `calendar_nudge` | kis student ko, kis cheez ka, kab nudge jaana hai; `scheduled / sent / skipped` | nudge ka apna jeevan hai — schedule, hold, skip, sent. Yahi row double-send rokti hai aur history bhi rakhti hai |
+| 6 | `calendar_push_device` | mobile app ka push token + platform | token user ka hai, event ka nahi; logout par sirf yahi row hatti hai |
+| 7 | `calendar_settings` | **poore platform ki ek hi row** — nudge timings, daily limit, quiet hours | ek hi row isliye ispar `org_id` nahi. Engine har tick par yahi padhta hai |
 
-Design doc ke Tables wale hisse ke hisaab se, `app/db/models/` me — har table ki apni file:
+**Application Deadline ki koi table nahi.** Wo jobs service ki expiry date se
+derive hoti hai — design ka pehla na-badalne-wala faisla. Isi liye job apply hote
+hi deadline apne aap gayab ho jaati hai; kisi row ko mitana nahi padta.
 
-| Table | Kya rakhti hai |
-|---|---|
-| `calendar_event` | event — type, title, date, mode, venue, status, cancel ka byora |
-| `calendar_event_audience` | ek event ka ek row — courses, batches, departments |
-| `calendar_event_recipient` | publish par freeze hui student list, `active` / `removed` |
-| `calendar_reminder` | TPO aur student dono ke My Reminders |
-| `calendar_nudge` | kis student ko kab nudge jaana hai |
-| `calendar_settings` | **poore platform ki ek hi row** — isi liye ispar `org_id` nahi |
+`columns.py` **koi table nahi** — sirf wo column definitions jo baar-baar aati
+hain (`primary_key()`, `required_id()`, `moment()`, `created_at()`, `text()`,
+`flag()`, `count()`). Model file me ab sirf naam aur rule dikhta hai,
+`Column(...)` ka dohraav nahi.
 
-Saatvi file `columns.py` hai — koi table nahi, sirf wo column definitions jo
-baar-baar aati hain (`primary_key()`, `required_id()`, `moment()`,
-`created_at()`, `text()`, `flag()`, `count()`). Model file me ab sirf naam aur
-rule dikhta hai, `Column(...)` ka dohraav nahi.
+---
 
-**Application Deadline ki koi table nahi.** Wo jobs API ki expiry date se derive
-hoti hai — design ka pehla na-badalne-wala faisla.
+## 2. Ek asli example — ek event banne par kahan kya bana
 
-## Teen baatein jo models me jaan-boojh kar hain
+Neeche sab kuch sach me chala kar liya gaya hai. TPO ne 18 Oct, 2:00 PM ka PPT
+banaya (BTech · 2027 · Computer Science), aur student ne apna ek reminder jodа.
+
+### Kadam 1 — TPO ne event banaya
+
+```sql
+select left(event_id::text,8) as event_id, event_type, title,
+       event_date, start_at at time zone 'Asia/Kolkata' as start_ist,
+       mode, venue, status
+from calendar_event;
+```
+
+```
+ event_id | event_type |             title             | event_date |      start_ist      |  mode   |        venue        |  status
+----------+------------+-------------------------------+------------+---------------------+---------+---------------------+-----------
+ 13c8cbcb | ppt        | 47 billion Pre-Placement Talk | 2026-10-18 | 2026-10-18 14:00:00 | offline | Auditorium, Block A | published
+```
+
+> `event_date` alag column hai aur `start_at` alag — din timezone se nahi badalna
+> chahiye, isliye date `Date` me, aur asli waqt UTC me (`at time zone` lagate hi
+> wapas IST me 14:00 dikh gaya).
+
+**`calendar_event_audience`** — audience ek hi row me, arrays ke saath:
+
+```
+ event_id | opportunity_type | courses | batches |     departments
+----------+------------------+---------+---------+----------------------
+ 13c8cbcb | job              | {BTech} | {2027}  | {"Computer Science"}
+```
+
+**`calendar_event_recipient`** — us audience se nikle student, freeze hokar:
+
+```
+ event_id | student  | state  | seen_at
+----------+----------+--------+---------
+ 13c8cbcb | 33333333 | active |
+```
+
+`seen_at` khali hai → student ke bell me ye notification abhi **unread** hai.
+
+**`calendar_nudge`** — do nudge apne aap schedule ho gaye:
+
+```
+    nudge_type     | item_type |  status   |       kab_ist
+-------------------+-----------+-----------+---------------------
+ event_day_before  | event     | scheduled | 2026-10-17 14:00:00
+ event_hour_before | event     | scheduled | 2026-10-18 13:00:00
+```
+
+### Kadam 2 — student ne apna reminder banaya
+
+```
+           title            | reminder_date | reminder_time | remind_before | owner_role
+----------------------------+---------------+---------------+---------------+------------
+ Revise DBMS before the PPT | 2026-10-18    | 12:00:00      | 1_hour        | student
+```
+
+Iska alert bhi `calendar_nudge` me chala gaya — ab teen rows:
+
+```
+    nudge_type     | item_type |  status   |       kab_ist
+-------------------+-----------+-----------+---------------------
+ event_day_before  | event     | scheduled | 2026-10-17 14:00:00
+ reminder_alert    | reminder  | scheduled | 2026-10-18 11:00:00
+ event_hour_before | event     | scheduled | 2026-10-18 13:00:00
+```
+
+> `item_type` isliye hai ki ek hi table teen tarah ke nudge rakhti hai — event ka,
+> job deadline ka, aur apne reminder ka.
+
+### Kadam 3 — TPO ne audience badal kar MBA kar diya
+
+```
+ event_id | student  |  state  | seen_at
+----------+----------+---------+---------
+ 13c8cbcb | 33333333 | removed |
+```
+
+Row **delete nahi hui** — `state` `removed` ho gayi. Isi ek badlav se teen cheezein
+apne aap ho gayin:
+
+* student ke calendar par wo event ab **"No longer applicable"** (muted, struck) dikhta hai
+* uske bell me reason ke saath notification gayi
+* us event ke pending nudges hat gaye — bachi sirf uski apni reminder wali:
+
+```
+   nudge_type   |  status   | kyun
+----------------+-----------+------
+ reminder_alert | scheduled | -
+```
+
+Agar recipient ko delete kar dete, to na "no longer applicable" dikhta, na ye pata
+chalta ki pehle kise bheja gaya tha.
+
+### Khud chala kar dekhna ho
+
+```bash
+docker exec -it campus-calendar-db psql -U calendar -d campus_calendar
+
+\dt                                  -- saari tables
+select * from calendar_event;
+select * from calendar_event_recipient;
+select nudge_type, status, scheduled_at at time zone 'Asia/Kolkata' from calendar_nudge;
+```
+
+---
+
+## 3. Teen baatein jo models me jaan-boojh kar hain
 
 | Baat | Kyun |
 |---|---|
@@ -36,7 +145,7 @@ hoti hai — design ka pehla na-badalne-wala faisla.
 | `event_date` `Date` hai, `timestamp` nahi | all-day cheez ka din timezone se nahi badalna chahiye (design doc, Date aur time wala hissa) |
 | `start_at` / `end_at` `DateTime(timezone=True)` | DB me UTC, render user ke timezone me |
 
-## Unique constraints — inhi se galti rukti hai
+## 4. Unique constraints — inhi se galti rukti hai
 
 | Table | Constraint | Kya rokta hai |
 |---|---|---|
@@ -44,7 +153,7 @@ hoti hai — design ka pehla na-badalne-wala faisla.
 | `calendar_nudge` | `(student_id, nudge_type, item_id, scheduled_at)` | **double-send** |
 | `calendar_event_audience` | `event_id` unique | ek event ke do audience |
 
-## Indexes
+## 5. Indexes
 
 | Index | Kiske liye |
 |---|---|
@@ -54,30 +163,28 @@ hoti hai — design ka pehla na-badalne-wala faisla.
 | `ix_calendar_nudge_due` | scheduler ko due nudges |
 | `ix_calendar_reminder_owner_date` | My Reminders |
 
-## Banane ka command
-
-> Command me koi flag samajh na aaye to [`schema.md`](schema.md) dekho.
+## 6. Banane ka command
 
 ```bash
 cd calendar-backend
-source .venv/bin/activate
-PYTHONPATH=. python setup/init_db.py
+make db-up
 ```
 
 ```
-tables ready: calendar_event, calendar_event_audience, calendar_event_recipient,
-              calendar_nudge, calendar_reminder, calendar_settings
+database created: campus_calendar
+schema is up to date
+tables: calendar_event, calendar_event_audience, calendar_event_recipient,
+        calendar_nudge, calendar_push_device, calendar_reminder, calendar_settings
 settings row created
 ```
 
-`PYTHONPATH=.` zaroori hai — warna `No module named 'app'` aata hai.
+Ye do kaam karta hai:
 
-Script do kaam karti hai:
+1. **migration** chalata hai — khali DB par saari saat tables, purane DB par sirf
+   jo missing hai
+2. `calendar_settings` me **ek row** daalta hai, agar pehle se nahi hai
 
-1. `Base.metadata.create_all(engine)` — jo table nahi hai wahi banti hai
-2. `calendar_settings` me **ek row** daalti hai, agar pehle se nahi hai
-
-Dobara chalao to kuch nahi tootta — row pehle se ho to chhod deti hai.
+Dobara chalao to kuch nahi tootta.
 
 ## Jaanchne ke commands
 
@@ -108,7 +215,7 @@ nahi, sirf nayi banata hai.
 
 ---
 
-## 2. `calendar_event` — har column kyun hai
+## 7. `calendar_event` — har column kyun hai
 
 File: `app/db/models/calendar_event.py`
 
@@ -129,7 +236,7 @@ class CalendarEvent(Base):
     ...
 ```
 
-## 24 column, 8 sawaal
+### 24 column, 8 sawaal
 
 | Sawaal | Columns |
 |---|---|
@@ -144,7 +251,7 @@ class CalendarEvent(Base):
 
 ---
 
-## 1. Ye row hai kiski
+### Ye row hai kiski
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -153,7 +260,7 @@ class CalendarEvent(Base):
 
 > `org_id` BRD me **field ki tarah** nahi hai — ye multi-tenancy ke liye hai.
 
-## 2. Hai kya
+### Hai kya
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -164,7 +271,7 @@ class CalendarEvent(Base):
 > `company_id` par **FK nahi** — wo row SkillsBridge ke DB me hai, hamare me nahi.
 > Naam dikhana ho to API se aayega.
 
-## 3. Kab hai
+### Kab hai
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -172,7 +279,7 @@ class CalendarEvent(Base):
 | `start_at` | `columns.moment()` | Deadline aur My Reminder par time hota hi nahi, isliye nullable (BRD, line 205) |
 | `end_at` | `columns.moment()` | Start se baad me hona chahiye — ye rule Pydantic me lagega, DB me nahi (BRD, line 206) |
 
-## 4. Kahan hai
+### Kahan hai
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -183,13 +290,13 @@ class CalendarEvent(Base):
 > "required" dono ke liye **condition** par hai, isliye DB me dono nullable hain.
 > Ye shart Pydantic validator me lagegi (design doc, Validation rules wala hissa).
 
-## 5. Aur kya likha hai
+### Aur kya likha hai
 
 | Column | Code | Kyun |
 |---|---|---|
 | `description` | `columns.long_text()` | Rich text, optional, max 1000 (BRD, line 211). `Text` isliye kyunki rich text ka HTML 1000 visible characters se bada ho sakta hai — limit Pydantic me lagegi |
 
-## 6. Kis job se juda hai
+### Kis job se juda hai
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -201,7 +308,7 @@ class CalendarEvent(Base):
 > Ye 4 column **BRD me nahi** hain — UI spec me jude hain, wahan `<-- NEW` likha
 > hai (UI spec, line 326). Rakhne ka faisla ho chuka hai: job link chahiye.
 
-## 7. Zinda hai ya cancel
+### Zinda hai ya cancel
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -215,7 +322,7 @@ class CalendarEvent(Base):
 > hat jaata hai, par TPO ko dikhta rehta hai (BRD, line 325 se 328) — isliye bhi row
 > delete nahi ki ja sakti.
 
-## 8. Kiska hai
+### Kiska hai
 
 | Column | Code | Kyun |
 |---|---|---|
@@ -280,7 +387,7 @@ Har faisle ke peeche ek wajah hai:
 
 ---
 
-## 3. `columns.py` — dohraav hatane wale helpers
+## 8. `columns.py` — dohraav hatane wale helpers
 
 File: `app/db/models/columns.py`
 
@@ -315,7 +422,7 @@ lagaoge to pehli table se chhin jaayega. Isliye har call naya Column banata hai.
 
 ---
 
-## 16 helper — kaunsa kahan
+### 16 helper — kaunsa kahan
 
 ### Id ke liye — 4
 
