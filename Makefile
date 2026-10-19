@@ -1,7 +1,7 @@
 PY = .venv/bin/python
 DB_CONTAINER = campus-calendar-db
 
-.PHONY: db-init db-start db-stop db-check db-drop db-up db-revision stop run
+.PHONY: db-init db-start db-stop db-check db-drop db-up db-revision stop run run-local
 
 # First time only: create the Postgres container (port 5440).
 db-init:
@@ -42,3 +42,16 @@ stop:
 run: stop
 	@sleep 1
 	@PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port $(API_PORT) --reload
+
+# This machine's address on the network, read fresh every time because DHCP changes it.
+LAN_IP = $(shell hostname -I | awk '{print $$1}')
+
+# Same server, but open to every device on the same network. The LAN origin is
+# added to CORS here, so .env keeps its localhost-only list.
+run-local: stop
+	@sleep 1
+	@echo "API      http://$(LAN_IP):$(API_PORT)"
+	@echo "Frontend run: npm run dev:local"
+	@PYTHONPATH=. \
+		CORS_ORIGINS="http://localhost:5180,http://127.0.0.1:5180,http://$(LAN_IP):5180" \
+		.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $(API_PORT) --reload
