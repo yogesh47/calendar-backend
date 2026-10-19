@@ -1,5 +1,3 @@
-from datetime import date
-
 from app.auth.users import TPO, HardcodedUser
 from app.models.calendar_model import EventOut, LinkedJobIn
 from app.services.jobs import (
@@ -68,7 +66,3 @@ def deadline_out(job: CampusJob, viewer: HardcodedUser) -> EventOut:
 
 def deadline_items(viewer: HardcodedUser) -> list[EventOut]:
     return [deadline_out(job, viewer) for job in visible_jobs(viewer)]
-
-
-def closing_on_or_after(viewer: HardcodedUser, day: date) -> list[EventOut]:
-    return [item for item in deadline_items(viewer) if item.event_date >= day]

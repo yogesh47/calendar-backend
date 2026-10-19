@@ -33,7 +33,7 @@ calendar_user = require_role(TPO, STUDENT)
 
 # Returns every event, reminder and job deadline the signed-in user is allowed to see.
 # `from_date` / `to_date` narrow it to one month, which is what the mobile screen asks for.
-@router.get("/events", response_model=list[EventOut])
+@router.get("/events")
 def list_events(
     user: Annotated[HardcodedUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -44,7 +44,7 @@ def list_events(
 
 
 # The mobile dashboard's "Coming Up" card: the next few items that still apply.
-@router.get("/coming-up", response_model=list[EventOut])
+@router.get("/coming-up")
 def coming_up(
     user: Annotated[HardcodedUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -54,13 +54,13 @@ def coming_up(
 
 
 # Tells the TPO how many students match an audience before the event is created.
-@router.post("/audience/count", response_model=AudienceCountOut)
+@router.post("/audience/count")
 def count_audience(payload: AudienceCountIn, _: Annotated[HardcodedUser, Depends(require_role(TPO))]) -> AudienceCountOut:
     return AudienceCountOut(count=calendar_service.audience_count(payload.audience))
 
 
 # Creates an event (TPO only) or a private reminder, then wakes up every open calendar.
-@router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
+@router.post("/events", status_code=status.HTTP_201_CREATED)
 def create_event(
     payload: EventIn,
     user: Annotated[HardcodedUser, Depends(calendar_user)],
@@ -79,7 +79,7 @@ def create_event(
 
 
 # Edits an existing event or the owner's own reminder.
-@router.put("/events/{event_id}", response_model=EventOut)
+@router.put("/events/{event_id}")
 def update_event(
     event_id: str,
     payload: EventIn,
@@ -104,7 +104,7 @@ def update_event(
 
 
 # Cancels an event with a reason; the item stays on the calendar as cancelled.
-@router.post("/events/{event_id}/cancel", response_model=EventOut)
+@router.post("/events/{event_id}/cancel")
 def cancel_event(
     event_id: str,
     payload: CancelIn,
@@ -145,7 +145,7 @@ def delete_one(
 
 
 # Permanently deletes several items in one call and reports what was skipped.
-@router.post("/events/bulk-delete", response_model=DeleteOut)
+@router.post("/events/bulk-delete")
 def delete_many(
     payload: DeleteManyIn,
     user: Annotated[HardcodedUser, Depends(require_role(TPO))],
@@ -158,7 +158,7 @@ def delete_many(
 
 
 # Wipes the org's events and the caller's own reminders; needs ?confirm=yes.
-@router.delete("/events", response_model=DeleteOut)
+@router.delete("/events")
 def delete_all(
     user: Annotated[HardcodedUser, Depends(require_role(TPO))],
     db: Annotated[Session, Depends(get_db)],
@@ -174,7 +174,7 @@ def delete_all(
 
 
 # Returns the signed-in student's notifications, newest first.
-@router.get("/notifications", response_model=list[NotificationOut])
+@router.get("/notifications")
 def list_notifications(
     user: Annotated[HardcodedUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -183,7 +183,7 @@ def list_notifications(
 
 
 # The red dot on the mobile calendar icon — how many notifications are still unread.
-@router.get("/notifications/unread-count", response_model=UnreadOut)
+@router.get("/notifications/unread-count")
 def unread_count(
     user: Annotated[HardcodedUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -215,7 +215,7 @@ def read_all_notifications(
 
 # Demo "apply" — the Jobs service owns this in the real app. Applying takes the deadline
 # off the student's calendar, along with their pending nudges for it.
-@router.post("/jobs/{job_id}/apply", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
+@router.post("/jobs/{job_id}/apply", status_code=status.HTTP_201_CREATED)
 def apply_to_job(
     job_id: str,
     user: Annotated[HardcodedUser, Depends(require_role(STUDENT))],
@@ -243,7 +243,7 @@ def withdraw_application(
 
 
 # The mobile app registers its push token here so nudges can reach the phone.
-@router.post("/push/devices", response_model=DeviceOut, status_code=status.HTTP_201_CREATED)
+@router.post("/push/devices", status_code=status.HTTP_201_CREATED)
 def register_device(
     payload: DeviceIn,
     user: Annotated[HardcodedUser, Depends(calendar_user)],

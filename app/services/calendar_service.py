@@ -457,15 +457,6 @@ def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, n
     return event_out(db, event, user)
 
 
-def delete_reminder(db: Session, user: HardcodedUser, reminder_id: str) -> None:
-    reminder = db.get(CalendarReminder, as_uuid(reminder_id))
-    if not reminder or str(reminder.owner_id) != user.user_id:
-        raise LookupError("Reminder not found")
-
-    db.delete(reminder)
-    db.commit()
-
-
 def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
     key = as_uuid(item_id)
 

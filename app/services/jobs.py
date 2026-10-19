@@ -90,10 +90,6 @@ def job_by_id(job_id: str) -> CampusJob | None:
     return next((job for job in CAMPUS_JOBS if job.job_id == job_id), None)
 
 
-def jobs_for(department: str) -> list[CampusJob]:
-    return [job for job in CAMPUS_JOBS if department in job.departments]
-
-
 def is_open(job: CampusJob) -> bool:
     return job.status == "active"
 

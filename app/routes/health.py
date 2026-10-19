@@ -11,7 +11,7 @@ from app.models.response_model import HealthResponse
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/health")
 def health(db: Annotated[Session, Depends(get_db)]) -> HealthResponse:
     try:
         db.execute(text("select 1"))

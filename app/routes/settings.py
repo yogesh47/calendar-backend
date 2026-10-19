@@ -13,7 +13,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 # Returns the one row of calendar and nudge settings the whole platform runs on.
-@router.get("", response_model=SettingsOut)
+@router.get("")
 def read_settings(
     _: Annotated[HardcodedUser, Depends(require_role(SUPER_ADMIN))],
     db: Annotated[Session, Depends(get_db)],
@@ -22,7 +22,7 @@ def read_settings(
 
 
 # Saves new nudge timings, the daily limit and quiet hours; only a Super Admin may.
-@router.put("", response_model=SettingsOut)
+@router.put("")
 def save_settings(
     payload: SettingsIn,
     user: Annotated[HardcodedUser, Depends(require_role(SUPER_ADMIN))],

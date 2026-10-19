@@ -9,12 +9,3 @@ def as_uuid(value: str) -> uuid.UUID:
         return uuid.UUID(str(value))
     except (AttributeError, TypeError, ValueError) as error:
         raise ValueError(BAD_ID) from error
-
-
-def is_uuid(value: str) -> bool:
-    try:
-        as_uuid(value)
-    except ValueError:
-        return False
-
-    return True

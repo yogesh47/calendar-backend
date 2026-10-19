@@ -21,7 +21,7 @@ def to_response(user: HardcodedUser) -> UserResponse:
     )
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 def login(payload: LoginRequest) -> LoginResponse:
     user = authenticate(payload.email, payload.password)
     if not user:
@@ -32,6 +32,6 @@ def login(payload: LoginRequest) -> LoginResponse:
     return LoginResponse(access_token=token, expires_in=expires_in, user=to_response(user))
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me")
 def me(user: Annotated[HardcodedUser, Depends(current_user)]) -> UserResponse:
     return to_response(user)
