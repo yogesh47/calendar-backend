@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.conf import CORS_ORIGINS
 from app.errors import register_errors
-from app.jobs import start_nudge_runner, stop_nudge_runner
 from app.routes import auth, calendar, health, settings
+from app.scheduler import start_nudge_runner, stop_nudge_runner
 
 app = FastAPI(title="Campus Calendar", version="0.1.0")
 

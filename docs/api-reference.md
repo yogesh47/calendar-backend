@@ -227,7 +227,7 @@ Logout par token hata do.
 
 > Abhi koi FCM/APNs provider juda nahi hai — backend token rakhta hai aur engine
 > jaanta hai kab bhejna hai; asli push nikalne ki ek line
-> `app/jobs/nudge_runner.py` me aayegi.
+> `app/scheduler/nudge_runner.py` me aayegi.
 
 ---
 
