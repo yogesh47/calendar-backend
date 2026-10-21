@@ -2,11 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-from app.auth.users import HardcodedUser
+from app.auth.users import SignedInUser
 from app.conf import JWT_ALGORITHM, JWT_EXPIRY_MINUTES, JWT_SECRET
 
 
-def issue_token(user: HardcodedUser) -> tuple[str, int]:
+def issue_token(user: SignedInUser) -> tuple[str, int]:
     expires_in = JWT_EXPIRY_MINUTES * 60
     payload = {
         "sub": user.user_id,

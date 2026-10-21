@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import date
 
-from app.auth.users import HARDCODED_USERS, STUDENT
+from sqlalchemy.orm import Session
+
+from app.auth.users import students_of
 from app.services.students import STUDENT_PROFILE
 
 
@@ -103,11 +105,11 @@ def is_eligible(job: CampusJob, course: str, batch: int, department: str) -> boo
     return department.strip().lower() in wanted and (job.batch is None or job.batch == batch)
 
 
-def eligible_student_ids(job: CampusJob) -> list[str]:
+def eligible_student_ids(db: Session, org_id: str, job: CampusJob) -> list[str]:
     if not is_eligible(job, STUDENT_PROFILE["course"], STUDENT_PROFILE["batch"], STUDENT_PROFILE["department"]):
         return []
 
-    return [user.user_id for user in HARDCODED_USERS if user.role == STUDENT]
+    return [user.user_id for user in students_of(db, org_id)]
 
 
 def has_applied(job_id: str, student_id: str) -> bool:
@@ -119,8 +121,8 @@ def applications_for(job_id: str) -> list[JobApplication]:
 
 
 # These are the three counts a TPO sees on a deadline's detail (FR-CAL-08).
-def deadline_counts(job: CampusJob) -> dict[str, int]:
-    eligible = eligible_student_ids(job)
+def deadline_counts(db: Session, org_id: str, job: CampusJob) -> dict[str, int]:
+    eligible = eligible_student_ids(db, org_id, job)
     applied = [entry for entry in applications_for(job.job_id) if entry.student_id in eligible]
 
     return {

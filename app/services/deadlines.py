@@ -1,4 +1,6 @@
-from app.auth.users import TPO, HardcodedUser
+from sqlalchemy.orm import Session
+
+from app.auth.users import TPO, SignedInUser
 from app.models.calendar_model import EventOut, LinkedJobIn
 from app.services.jobs import (
     CAMPUS_JOBS,
@@ -13,7 +15,7 @@ from app.services.students import STUDENT_PROFILE
 
 # BRD FR-CAL-08: a student sees a deadline only while the job is active, they are eligible
 # and they have not applied yet. A TPO sees every active job's deadline.
-def visible_jobs(viewer: HardcodedUser) -> list[CampusJob]:
+def visible_jobs(viewer: SignedInUser) -> list[CampusJob]:
     live = [job for job in CAMPUS_JOBS if is_open(job)]
 
     if viewer.role == TPO:
@@ -28,7 +30,7 @@ def visible_jobs(viewer: HardcodedUser) -> list[CampusJob]:
 
 
 # The deadline reads like any other calendar item, so one list serves web and mobile.
-def deadline_out(job: CampusJob, viewer: HardcodedUser) -> EventOut:
+def deadline_out(db: Session, job: CampusJob, viewer: SignedInUser) -> EventOut:
     moment = f"{job.application_end_date.isoformat()}T00:00:00+00:00"
 
     return EventOut(
@@ -60,9 +62,9 @@ def deadline_out(job: CampusJob, viewer: HardcodedUser) -> EventOut:
         linked_type="job_deadline",
         linked_id=job.job_id,
         is_owner=False,
-        deadline_counts=deadline_counts(job) if viewer.role == TPO else None,
+        deadline_counts=deadline_counts(db, viewer.org_id, job) if viewer.role == TPO else None,
     )
 
 
-def deadline_items(viewer: HardcodedUser) -> list[EventOut]:
-    return [deadline_out(job, viewer) for job in visible_jobs(viewer)]
+def deadline_items(db: Session, viewer: SignedInUser) -> list[EventOut]:
+    return [deadline_out(db, job, viewer) for job in visible_jobs(viewer)]

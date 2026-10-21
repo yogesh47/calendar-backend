@@ -5,6 +5,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.exceptions import (
+    AlreadyExistError,
+    AuthenticationError,
+    InvalidInputError,
+    NotExistError,
+    PermissionDeniedError,
+)
+
 LOGGER = logging.getLogger("calendar.errors")
 
 FALLBACK = "Something went wrong. Please try again."
@@ -120,15 +128,34 @@ def readable(error: dict) -> str:
     return message or FALLBACK
 
 
-# Every error answers in one shape: a one-line detail, a code, and the field when there is one.
+# Whatever actually went wrong, in the words it was raised with — the screen
+# shows the message the server sends, so a fixed "something went wrong" would
+# hide the one useful line. A database error is read off its driver exception
+# (`orig`), which is the single sentence — "null value in column ... violates
+# not-null constraint" — rather than the whole statement and its parameters.
+def said_by(error: Exception) -> str:
+    said = str(getattr(error, "orig", error) or "").strip()
+    if not said:
+        return ""
+
+    first = said.splitlines()[0].strip()
+
+    return first[:300]
+
+
+# Every error answers in one shape. `message` is the contract — the same key
+# 7Seers-SkillsBridge answers with, so a client written against either service
+# reads the other without changing. `code`, `field` and `errors` ride along for
+# the form screens, which highlight the box that was refused; a reader that only
+# knows `message` is unaffected by them.
 def problem(
     code: str,
-    detail: str,
+    message: str,
     http_status: int,
     field: str = "",
     errors: list[dict] | None = None,
 ) -> JSONResponse:
-    body: dict = {"detail": detail, "code": code}
+    body: dict = {"message": message, "code": code}
     if field:
         body["field"] = field
     if errors:
@@ -164,14 +191,46 @@ def register_errors(app: FastAPI) -> None:
 
         return problem(CODES.get(error.status_code, "error"), detail, error.status_code)
 
+    # The services raise these to say what went wrong; mapping them here once is
+    # what lets every route read as the work it does, with no try/except repeated
+    # around each call. The message is the one the service raised. Anything NOT
+    # on this list is a bug, and still answers 500.
+    @app.exception_handler(NotExistError)
+    async def on_missing(_: Request, error: NotExistError) -> JSONResponse:
+        return problem("not_found", str(error) or "Not found", status.HTTP_404_NOT_FOUND)
+
+    @app.exception_handler(AlreadyExistError)
+    async def on_duplicate(_: Request, error: AlreadyExistError) -> JSONResponse:
+        return problem("conflict", str(error) or FALLBACK, status.HTTP_409_CONFLICT)
+
+    @app.exception_handler(AuthenticationError)
+    async def on_unauthenticated(_: Request, error: AuthenticationError) -> JSONResponse:
+        return problem("unauthenticated", str(error) or FALLBACK, status.HTTP_401_UNAUTHORIZED)
+
+    @app.exception_handler(PermissionDeniedError)
+    async def on_denied(_: Request, error: PermissionDeniedError) -> JSONResponse:
+        return problem("forbidden", str(error) or FALLBACK, status.HTTP_403_FORBIDDEN)
+
+    @app.exception_handler(InvalidInputError)
+    async def on_bad_input(_: Request, error: InvalidInputError) -> JSONResponse:
+        return problem("bad_request", str(error) or FALLBACK, status.HTTP_400_BAD_REQUEST)
+
     @app.exception_handler(SQLAlchemyError)
     async def on_db_error(_: Request, error: SQLAlchemyError) -> JSONResponse:
         LOGGER.exception("database call failed", exc_info=error)
 
-        return problem("database_unavailable", DB_DOWN, status.HTTP_503_SERVICE_UNAVAILABLE)
+        return problem(
+            "database_unavailable",
+            said_by(error) or DB_DOWN,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     @app.exception_handler(Exception)
     async def on_unexpected(_: Request, error: Exception) -> JSONResponse:
         LOGGER.exception("unhandled request error", exc_info=error)
 
-        return problem("server_error", SERVER_ERROR, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return problem(
+            "server_error",
+            said_by(error) or SERVER_ERROR,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )

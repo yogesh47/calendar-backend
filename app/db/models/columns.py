@@ -12,11 +12,21 @@ from sqlalchemy import (
     Time,
     func,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 
+# The id is generated on BOTH sides on purpose: `default` covers an ORM insert,
+# `server_default` covers a plain `INSERT` written by hand or by a migration, so
+# neither route has to remember to mint one. gen_random_uuid() is built into
+# Postgres 13 and later — no extension needed.
 def primary_key() -> Column:
-    return Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    return Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=sql_text("gen_random_uuid()"),
+    )
 
 
 def required_id(index: bool = False) -> Column:

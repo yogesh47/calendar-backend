@@ -1,14 +1,15 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_role
 from app.auth.tokens import read_token
-from app.auth.users import STUDENT, TPO, HardcodedUser, find_by_id
+from app.auth.users import STUDENT, TPO, SignedInUser, find_by_id
 from app.db.session import get_db
+from app.exceptions import AuthenticationError, InvalidInputError, PermissionDeniedError
 from app.models.calendar_model import (
     ApplicationOut,
     AudienceCountIn,
@@ -35,7 +36,7 @@ calendar_user = require_role(TPO, STUDENT)
 # `from_date` / `to_date` narrow it to one month, which is what the mobile screen asks for.
 @router.get("/events")
 def list_events(
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
     from_date: date | None = None,
     to_date: date | None = None,
@@ -46,7 +47,7 @@ def list_events(
 # The mobile dashboard's "Coming Up" card: the next few items that still apply.
 @router.get("/coming-up")
 def coming_up(
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
     limit: int = 3,
 ) -> list[EventOut]:
@@ -55,7 +56,7 @@ def coming_up(
 
 # Tells the TPO how many students match an audience before the event is created.
 @router.post("/audience/count")
-def count_audience(payload: AudienceCountIn, _: Annotated[HardcodedUser, Depends(require_role(TPO))]) -> AudienceCountOut:
+def count_audience(payload: AudienceCountIn, _: Annotated[SignedInUser, Depends(require_role(TPO))]) -> AudienceCountOut:
     return AudienceCountOut(count=calendar_service.audience_count(payload.audience))
 
 
@@ -63,16 +64,13 @@ def count_audience(payload: AudienceCountIn, _: Annotated[HardcodedUser, Depends
 @router.post("/events", status_code=status.HTTP_201_CREATED)
 def create_event(
     payload: EventIn,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> EventOut:
     if payload.event_type != "my_reminder" and user.role != TPO:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a TPO can create events")
+        raise PermissionDeniedError("Only a TPO can create events")
 
-    try:
-        created = calendar_service.create_event(db, user, payload)
-    except ValueError as bad:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
+    created = calendar_service.create_event(db, user, payload)
     live_stream.publish(user.org_id, created.event_id)
 
     return created
@@ -83,21 +81,13 @@ def create_event(
 def update_event(
     event_id: str,
     payload: EventIn,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> EventOut:
     if payload.event_type != "my_reminder" and user.role != TPO:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a TPO can edit events")
+        raise PermissionDeniedError("Only a TPO can edit events")
 
-    try:
-        updated = calendar_service.update_event(db, user, event_id, payload)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
-    except PermissionError as denied:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
-    except ValueError as bad:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
-
+    updated = calendar_service.update_event(db, user, event_id, payload)
     live_stream.publish(user.org_id, updated.event_id)
 
     return updated
@@ -108,18 +98,10 @@ def update_event(
 def cancel_event(
     event_id: str,
     payload: CancelIn,
-    user: Annotated[HardcodedUser, Depends(require_role(TPO))],
+    user: Annotated[SignedInUser, Depends(require_role(TPO))],
     db: Annotated[Session, Depends(get_db)],
 ) -> EventOut:
-    try:
-        cancelled = calendar_service.cancel_event(db, user, event_id, payload.reason, payload.note)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
-    except PermissionError as denied:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
-    except ValueError as bad:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
-
+    cancelled = calendar_service.cancel_event(db, user, event_id, payload.reason, payload.note)
     live_stream.publish(user.org_id, cancelled.event_id)
 
     return cancelled
@@ -129,18 +111,10 @@ def cancel_event(
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_one(
     event_id: str,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    try:
-        calendar_service.delete_item(db, user, event_id)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    except PermissionError as denied:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(denied))
-    except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That id is not valid")
-
+    calendar_service.delete_item(db, user, event_id)
     live_stream.publish(user.org_id, event_id)
 
 
@@ -148,7 +122,7 @@ def delete_one(
 @router.post("/events/bulk-delete")
 def delete_many(
     payload: DeleteManyIn,
-    user: Annotated[HardcodedUser, Depends(require_role(TPO))],
+    user: Annotated[SignedInUser, Depends(require_role(TPO))],
     db: Annotated[Session, Depends(get_db)],
 ) -> DeleteOut:
     result = calendar_service.delete_many(db, user, payload.event_ids)
@@ -160,12 +134,12 @@ def delete_many(
 # Wipes the org's events and the caller's own reminders; needs ?confirm=yes.
 @router.delete("/events")
 def delete_all(
-    user: Annotated[HardcodedUser, Depends(require_role(TPO))],
+    user: Annotated[SignedInUser, Depends(require_role(TPO))],
     db: Annotated[Session, Depends(get_db)],
     confirm: str = "",
 ) -> DeleteOut:
     if confirm != "yes":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add ?confirm=yes to wipe every event")
+        raise InvalidInputError("Add ?confirm=yes to wipe every event")
 
     count = calendar_service.delete_everything(db, user)
     live_stream.publish(user.org_id, "delete-all")
@@ -176,7 +150,7 @@ def delete_all(
 # Returns the signed-in student's notifications, newest first.
 @router.get("/notifications")
 def list_notifications(
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[NotificationOut]:
     return calendar_service.notifications_for(db, user)
@@ -185,7 +159,7 @@ def list_notifications(
 # The red dot on the mobile calendar icon — how many notifications are still unread.
 @router.get("/notifications/unread-count")
 def unread_count(
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> UnreadOut:
     return UnreadOut(unread=calendar_service.unread_count(db, user))
@@ -195,19 +169,16 @@ def unread_count(
 @router.post("/notifications/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT)
 def read_notification(
     notification_id: str,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    try:
-        calendar_service.mark_seen(db, user, notification_id)
-    except ValueError as bad:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(bad))
+    calendar_service.mark_seen(db, user, notification_id)
 
 
 # Marks every notification of the user as read.
 @router.post("/notifications/read-all", status_code=status.HTTP_204_NO_CONTENT)
 def read_all_notifications(
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     calendar_service.mark_all_seen(db, user)
@@ -218,14 +189,10 @@ def read_all_notifications(
 @router.post("/jobs/{job_id}/apply", status_code=status.HTTP_201_CREATED)
 def apply_to_job(
     job_id: str,
-    user: Annotated[HardcodedUser, Depends(require_role(STUDENT))],
+    user: Annotated[SignedInUser, Depends(require_role(STUDENT))],
     db: Annotated[Session, Depends(get_db)],
 ) -> ApplicationOut:
-    try:
-        entry = calendar_service.apply_to_job(db, user, job_id)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
-
+    entry = calendar_service.apply_to_job(db, user, job_id)
     live_stream.publish(user.org_id, "application")
 
     return entry
@@ -235,7 +202,7 @@ def apply_to_job(
 @router.delete("/jobs/{job_id}/apply", status_code=status.HTTP_204_NO_CONTENT)
 def withdraw_application(
     job_id: str,
-    user: Annotated[HardcodedUser, Depends(require_role(STUDENT))],
+    user: Annotated[SignedInUser, Depends(require_role(STUDENT))],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     calendar_service.withdraw_application(db, user, job_id)
@@ -246,7 +213,7 @@ def withdraw_application(
 @router.post("/push/devices", status_code=status.HTTP_201_CREATED)
 def register_device(
     payload: DeviceIn,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> DeviceOut:
     return push.register(db, user, payload)
@@ -256,7 +223,7 @@ def register_device(
 @router.delete("/push/devices/{token}", status_code=status.HTTP_204_NO_CONTENT)
 def forget_device(
     token: str,
-    user: Annotated[HardcodedUser, Depends(calendar_user)],
+    user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     push.forget(db, user, token)
@@ -264,15 +231,17 @@ def forget_device(
 
 # Keeps an SSE connection open so a calendar refreshes the moment anything changes.
 @router.get("/stream")
-async def stream(request: Request) -> StreamingResponse:
+async def stream(request: Request, db: Annotated[Session, Depends(get_db)]) -> StreamingResponse:
+    # The browser's EventSource cannot send an Authorization header, so the token
+    # rides in the query string — the same token, read the same way.
     token = request.query_params.get("token", "")
     claims = read_token(token)
-    user = find_by_id(str(claims.get("sub", ""))) if claims else None
+    user = find_by_id(db, str(claims.get("sub", ""))) if claims else None
     if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Your session has expired")
+        raise AuthenticationError("Your session has expired")
 
     if user.role not in (TPO, STUDENT):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not have access to this")
+        raise PermissionDeniedError("You do not have access to this")
 
     queue = live_stream.subscribe(user.org_id)
 

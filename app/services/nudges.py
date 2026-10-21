@@ -1,10 +1,11 @@
+import logging
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.users import HARDCODED_USERS, STUDENT
+from app.auth.users import students_of
 from app.db.models import (
     CalendarEvent,
     CalendarEventRecipient,
@@ -15,6 +16,8 @@ from app.services import settings_service
 from app.services.clock import ORG_TIMEZONE, local_time, to_utc
 from app.services.jobs import CAMPUS_JOBS, has_applied, is_open, job_by_id
 from app.services.students import STUDENT_PROFILE
+
+LOGGER = logging.getLogger("calendar.nudges")
 
 EVENT_DAY_BEFORE = "event_day_before"
 EVENT_HOUR_BEFORE = "event_hour_before"
@@ -84,12 +87,17 @@ def _add(db: Session, org_id, student_id, nudge_type: str, item_type: str, item_
 
 # The student applied, so drop their pending nudges for that job.
 def drop_for_job(db: Session, job_id: str, student_id: str) -> None:
-    db.query(CalendarNudge).filter(
-        CalendarNudge.item_id == uuid.UUID(job_id),
-        CalendarNudge.student_id == uuid.UUID(student_id),
-        CalendarNudge.status == "scheduled",
-    ).delete()
-    db.commit()
+    try:
+        db.query(CalendarNudge).filter(
+            CalendarNudge.item_id == uuid.UUID(job_id),
+            CalendarNudge.student_id == uuid.UUID(student_id),
+            CalendarNudge.status == "scheduled",
+        ).delete()
+        db.commit()
+    except Exception as err:
+        LOGGER.error("drop_for_job failed: %s", err)
+        db.rollback()
+        raise
 
 
 def _drop_scheduled(db: Session, item_id) -> None:
@@ -99,11 +107,12 @@ def _drop_scheduled(db: Session, item_id) -> None:
     ).delete()
 
 
+# Stages the nudges for an event and does NOT commit: the caller owns the
+# transaction, so the event and its nudges are written together or not at all.
 def schedule_for_event(db: Session, event: CalendarEvent) -> None:
     _drop_scheduled(db, event.event_id)
 
     if event.status != "published":
-        db.commit()
         return
 
     settings = settings_service.current_row(db)
@@ -146,8 +155,6 @@ def schedule_for_event(db: Session, event: CalendarEvent) -> None:
                 to_utc(event.event_date, ASSESSMENT_HOUR),
             )
 
-    db.commit()
-
 
 def alert_at(reminder) -> datetime | None:
     if reminder.remind_before in (None, "none"):
@@ -160,6 +167,7 @@ def alert_at(reminder) -> datetime | None:
     return to_utc(reminder.reminder_date, ALL_DAY_ALERT_HOUR)
 
 
+# Same contract as schedule_for_event: stages only, the caller commits.
 def schedule_for_reminder(db: Session, reminder) -> None:
     _drop_scheduled(db, reminder.reminder_id)
     when = alert_at(reminder)
@@ -175,43 +183,46 @@ def schedule_for_reminder(db: Session, reminder) -> None:
             when,
         )
 
-    db.commit()
-
 
 def schedule_deadlines(db: Session, org_id: str) -> None:
-    settings = settings_service.current_row(db)
-    students = [user for user in HARDCODED_USERS if user.role == STUDENT]
+    try:
+        settings = settings_service.current_row(db)
+        students = students_of(db, org_id)
 
-    for job in CAMPUS_JOBS:
-        if not is_open(job) or STUDENT_PROFILE["department"] not in job.departments:
-            continue
-
-        for student in students:
-            if has_applied(job.job_id, student.user_id):
+        for job in CAMPUS_JOBS:
+            if not is_open(job) or STUDENT_PROFILE["department"] not in job.departments:
                 continue
 
-            _add(
-                db,
-                org_id,
-                student.user_id,
-                DEADLINE_DAYS_BEFORE,
-                "job",
-                job.job_id,
-                to_utc(job.application_end_date - timedelta(days=settings.deadline_reminder_days_before), DEADLINE_HOUR),
-            )
+            for student in students:
+                if has_applied(job.job_id, student.user_id):
+                    continue
 
-            if settings.deadline_reminder_same_day:
                 _add(
                     db,
                     org_id,
                     student.user_id,
-                    DEADLINE_LAST_DAY,
+                    DEADLINE_DAYS_BEFORE,
                     "job",
                     job.job_id,
-                    to_utc(job.application_end_date, DEADLINE_HOUR),
+                    to_utc(job.application_end_date - timedelta(days=settings.deadline_reminder_days_before), DEADLINE_HOUR),
                 )
 
-    db.commit()
+                if settings.deadline_reminder_same_day:
+                    _add(
+                        db,
+                        org_id,
+                        student.user_id,
+                        DEADLINE_LAST_DAY,
+                        "job",
+                        job.job_id,
+                        to_utc(job.application_end_date, DEADLINE_HOUR),
+                    )
+
+        db.commit()
+    except Exception as err:
+        LOGGER.error("schedule_deadlines failed: %s", err)
+        db.rollback()
+        raise
 
 
 def _still_relevant(db: Session, row: CalendarNudge) -> str | None:
@@ -329,64 +340,69 @@ def _sent_today(db: Session, student_id, day: date) -> int:
 
 
 def run_due(db: Session, now: datetime | None = None) -> dict[str, int]:
-    moment = now or _now()
-    settings = settings_service.current_row(db)
-    due = list(
-        db.scalars(
-            select(CalendarNudge)
-            .where(CalendarNudge.status == "scheduled", CalendarNudge.scheduled_at <= moment)
-            .order_by(CalendarNudge.scheduled_at)
+    try:
+        moment = now or _now()
+        settings = settings_service.current_row(db)
+        due = list(
+            db.scalars(
+                select(CalendarNudge)
+                .where(CalendarNudge.status == "scheduled", CalendarNudge.scheduled_at <= moment)
+                .order_by(CalendarNudge.scheduled_at)
+            )
         )
-    )
 
-    counts = {"sent": 0, "skipped": 0, "held": 0}
+        counts = {"sent": 0, "skipped": 0, "held": 0}
 
-    by_student: dict[str, list[CalendarNudge]] = {}
-    for row in due:
-        reason = _still_relevant(db, row)
-        if reason:
-            row.status = "skipped"
-            row.skip_reason = reason
-            counts["skipped"] += 1
-            continue
+        by_student: dict[str, list[CalendarNudge]] = {}
+        for row in due:
+            reason = _still_relevant(db, row)
+            if reason:
+                row.status = "skipped"
+                row.skip_reason = reason
+                counts["skipped"] += 1
+                continue
 
-        skips_quiet_hours = row.nudge_type == REMINDER_ALERT or (
-            row.nudge_type == EVENT_HOUR_BEFORE and _starts_in_quiet_hours(db, settings, row)
-        )
-        held_until = None if skips_quiet_hours else _quiet_until(settings, moment)
-        if held_until and held_until > moment:
-            row.scheduled_at = held_until
-            counts["held"] += 1
-            continue
+            skips_quiet_hours = row.nudge_type == REMINDER_ALERT or (
+                row.nudge_type == EVENT_HOUR_BEFORE and _starts_in_quiet_hours(db, settings, row)
+            )
+            held_until = None if skips_quiet_hours else _quiet_until(settings, moment)
+            if held_until and held_until > moment:
+                row.scheduled_at = held_until
+                counts["held"] += 1
+                continue
 
-        by_student.setdefault(str(row.student_id), []).append(row)
+            by_student.setdefault(str(row.student_id), []).append(row)
 
-    for student_id, rows in by_student.items():
-        alerts = [row for row in rows if row.nudge_type == REMINDER_ALERT]
-        counted = [row for row in rows if row.nudge_type != REMINDER_ALERT]
+        for student_id, rows in by_student.items():
+            alerts = [row for row in rows if row.nudge_type == REMINDER_ALERT]
+            counted = [row for row in rows if row.nudge_type != REMINDER_ALERT]
 
-        for row in alerts:
-            row.status = "sent"
-            row.sent_at = moment
-            counts["sent"] += 1
-
-        allowed = settings.daily_nudge_limit - _sent_today(db, uuid.UUID(student_id), _local(moment).date())
-        counted.sort(key=lambda entry: (PRIORITY[entry.nudge_type], entry.scheduled_at))
-
-        for index, row in enumerate(counted):
-            if index < max(allowed, 0):
+            for row in alerts:
                 row.status = "sent"
                 row.sent_at = moment
                 counts["sent"] += 1
-                continue
 
-            row.status = "skipped"
-            row.skip_reason = "Daily nudge limit reached"
-            counts["skipped"] += 1
+            allowed = settings.daily_nudge_limit - _sent_today(db, uuid.UUID(student_id), _local(moment).date())
+            counted.sort(key=lambda entry: (PRIORITY[entry.nudge_type], entry.scheduled_at))
 
-    db.commit()
+            for index, row in enumerate(counted):
+                if index < max(allowed, 0):
+                    row.status = "sent"
+                    row.sent_at = moment
+                    counts["sent"] += 1
+                    continue
 
-    return counts
+                row.status = "skipped"
+                row.skip_reason = "Daily nudge limit reached"
+                counts["skipped"] += 1
+
+        db.commit()
+
+        return counts
+    except Exception as err:
+        LOGGER.error("run_due failed: %s", err)
+        db.rollback()
+        raise
 
 
 def sent_for(db: Session, student_id: str) -> list[CalendarNudge]:

@@ -1,10 +1,11 @@
+import logging
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.users import TPO, HardcodedUser, find_by_id
+from app.auth.users import TPO, SignedInUser, find_by_id
 from app.db.models import (
     CalendarEvent,
     CalendarEventAudience,
@@ -12,6 +13,7 @@ from app.db.models import (
     CalendarNudge,
     CalendarReminder,
 )
+from app.exceptions import NotExistError, PermissionDeniedError
 from app.models.calendar_model import (
     ApplicationOut,
     AudienceIn,
@@ -27,6 +29,8 @@ from app.services.ids import as_uuid
 from app.services.jobs import apply_to, job_by_id
 from app.services.jobs import withdraw as withdraw_from
 from app.services.students import count_audience, matching_student_ids
+
+LOGGER = logging.getLogger("calendar.service")
 
 CANCEL_REASON_LABEL = {
     "postponed": "Postponed",
@@ -44,8 +48,8 @@ def _text(value: time | None) -> str | None:
     return value.strftime("%H:%M") if value else None
 
 
-def _name_of(user_id) -> str:
-    user = find_by_id(str(user_id))
+def _name_of(db: Session, user_id) -> str:
+    user = find_by_id(db, str(user_id))
 
     return user.name if user else "TPO"
 
@@ -78,7 +82,7 @@ def _recipient_of(db: Session, event_id, student_id: str) -> CalendarEventRecipi
     )
 
 
-def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> EventOut:
+def event_out(db: Session, event: CalendarEvent, viewer: SignedInUser) -> EventOut:
     audience = _audience_of(db, event.event_id)
     mine = _recipient_of(db, event.event_id, viewer.user_id) if viewer.role != TPO else None
     linked = None
@@ -118,7 +122,7 @@ def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> Event
         cancel_note=event.cancel_note,
         cancelled_at=event.cancelled_at,
         created_by=str(event.created_by),
-        created_by_name=_name_of(event.created_by),
+        created_by_name=_name_of(db, event.created_by),
         created_at=event.created_at,
         updated_at=event.updated_at,
         change_summary=event.change_summary,
@@ -139,7 +143,7 @@ def event_out(db: Session, event: CalendarEvent, viewer: HardcodedUser) -> Event
     )
 
 
-def reminder_out(reminder: CalendarReminder, viewer: HardcodedUser) -> EventOut:
+def reminder_out(db: Session, reminder: CalendarReminder, viewer: SignedInUser) -> EventOut:
     return EventOut(
         event_id=str(reminder.reminder_id),
         event_type="my_reminder",
@@ -159,7 +163,7 @@ def reminder_out(reminder: CalendarReminder, viewer: HardcodedUser) -> EventOut:
         cancel_note=None,
         cancelled_at=None,
         created_by=str(reminder.owner_id),
-        created_by_name=_name_of(reminder.owner_id),
+        created_by_name=_name_of(db, reminder.owner_id),
         created_at=reminder.created_at,
         updated_at=reminder.updated_at,
         notified_count=0,
@@ -218,7 +222,7 @@ def within(items: list[EventOut], start: date | None, end: date | None) -> list[
 
 def list_items(
     db: Session,
-    viewer: HardcodedUser,
+    viewer: SignedInUser,
     start: date | None = None,
     end: date | None = None,
 ) -> list[EventOut]:
@@ -245,19 +249,19 @@ def list_items(
 
     items = (
         [event_out(db, event, viewer) for event in events]
-        + [reminder_out(reminder, viewer) for reminder in reminders]
+        + [reminder_out(db, reminder, viewer) for reminder in reminders]
         + [nudge_out(db, row) for row in sent_nudges]
-        + deadlines.deadline_items(viewer)
+        + deadlines.deadline_items(db, viewer)
     )
 
     return within(items, start, end)
 
 
 # Applying also clears that student's pending deadline nudges.
-def apply_to_job(db: Session, user: HardcodedUser, job_id: str) -> ApplicationOut:
+def apply_to_job(db: Session, user: SignedInUser, job_id: str) -> ApplicationOut:
     job = job_by_id(job_id)
     if not job:
-        raise LookupError("Job not found")
+        raise NotExistError("Job not found")
 
     entry = apply_to(job_id, user.user_id)
     nudges.drop_for_job(db, job_id, user.user_id)
@@ -267,13 +271,13 @@ def apply_to_job(db: Session, user: HardcodedUser, job_id: str) -> ApplicationOu
     )
 
 
-def withdraw_application(db: Session, user: HardcodedUser, job_id: str) -> None:
+def withdraw_application(db: Session, user: SignedInUser, job_id: str) -> None:
     withdraw_from(job_id, user.user_id)
     nudges.schedule_deadlines(db, user.org_id)
 
 
 # The mobile "Coming Up" card: the next few items the viewer still cares about.
-def coming_up(db: Session, viewer: HardcodedUser, limit: int = 3) -> list[EventOut]:
+def coming_up(db: Session, viewer: SignedInUser, limit: int = 3) -> list[EventOut]:
     today = local_date(_now())
     upcoming = [
         item
@@ -285,12 +289,16 @@ def coming_up(db: Session, viewer: HardcodedUser, limit: int = 3) -> list[EventO
     return upcoming[:limit]
 
 
-def unread_count(db: Session, viewer: HardcodedUser) -> int:
+def unread_count(db: Session, viewer: SignedInUser) -> int:
     return len([entry for entry in notifications_for(db, viewer) if not entry.is_read])
 
 
 def sync_recipients(db: Session, event: CalendarEvent, audience: AudienceIn) -> None:
-    wanted = set(matching_student_ids(audience.courses, audience.batches, audience.departments))
+    wanted = set(
+        matching_student_ids(
+            db, str(event.org_id), audience.courses, audience.batches, audience.departments
+        )
+    )
     existing = {
         str(row.student_id): row
         for row in db.scalars(
@@ -340,153 +348,195 @@ def apply_payload(event: CalendarEvent, payload: EventIn) -> None:
     )
 
 
-def create_event(db: Session, user: HardcodedUser, payload: EventIn) -> EventOut:
-    if payload.event_type == "my_reminder":
-        reminder = CalendarReminder(
-            org_id=uuid.UUID(user.org_id),
-            owner_id=uuid.UUID(user.user_id),
-            owner_role=user.role,
-            title=payload.title,
-            reminder_date=payload.event_date,
-            reminder_time=payload.start_time,
-            note=payload.note,
-            remind_before=payload.remind_before or "none",
-            linked_type=payload.linked_type,
-            linked_id=uuid.UUID(payload.linked_id) if payload.linked_id else None,
-        )
-        db.add(reminder)
+# One unit of work: the row, its audience, its recipients and its nudges are
+# written together or not at all. Ids go through `as_uuid`, so a malformed one
+# answers "That id is not valid" (400) instead of leaking uuid's own wording.
+def create_event(db: Session, user: SignedInUser, payload: EventIn) -> EventOut:
+    try:
+        org_id = as_uuid(user.org_id)
+        owner_id = as_uuid(user.user_id)
+        linked_id = as_uuid(payload.linked_id) if payload.linked_id else None
+
+        try:
+            if payload.event_type == "my_reminder":
+                reminder = CalendarReminder(
+                    org_id=org_id,
+                    owner_id=owner_id,
+                    owner_role=user.role,
+                    title=payload.title,
+                    reminder_date=payload.event_date,
+                    reminder_time=payload.start_time,
+                    note=payload.note,
+                    remind_before=payload.remind_before or "none",
+                    linked_type=payload.linked_type,
+                    linked_id=linked_id,
+                )
+                db.add(reminder)
+                # The id the nudge hangs off is assigned by the flush, not the commit.
+                db.flush()
+                nudges.schedule_for_reminder(db, reminder)
+                db.commit()
+                db.refresh(reminder)
+
+                return reminder_out(db, reminder, user)
+
+            event = CalendarEvent(org_id=org_id, created_by=owner_id)
+            apply_payload(event, payload)
+            db.add(event)
+            db.flush()
+
+            if payload.audience:
+                db.add(
+                    CalendarEventAudience(
+                        event_id=event.event_id,
+                        opportunity_type=payload.audience.opportunity_type,
+                        courses=payload.audience.courses,
+                        batches=payload.audience.batches,
+                        departments=payload.audience.departments,
+                    )
+                )
+                sync_recipients(db, event, payload.audience)
+                # autoflush is off, so the recipients have to reach the transaction
+                # before schedule_for_event reads them back.
+                db.flush()
+
+            nudges.schedule_for_event(db, event)
+            db.commit()
+            db.refresh(event)
+
+            return event_out(db, event, user)
+        except Exception as err:
+            # Nothing half-written survives; the caller decides what the user is told.
+            LOGGER.error("create_event failed: %s", err)
+            db.rollback()
+            raise
+    except Exception as err:
+        LOGGER.error("create_event failed: %s", err)
+        db.rollback()
+        raise
+
+
+def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventIn) -> EventOut:
+    try:
+        key = as_uuid(event_id)
+        reminder = db.get(CalendarReminder, key)
+        if reminder:
+            if str(reminder.owner_id) != user.user_id:
+                raise PermissionDeniedError("Only the owner can edit this reminder")
+            reminder.title = payload.title
+            reminder.reminder_date = payload.event_date
+            reminder.reminder_time = payload.start_time
+            reminder.note = payload.note
+            reminder.remind_before = payload.remind_before or "none"
+            reminder.linked_type = payload.linked_type
+            reminder.linked_id = as_uuid(payload.linked_id) if payload.linked_id else None
+            db.flush()
+            nudges.schedule_for_reminder(db, reminder)
+            db.commit()
+            db.refresh(reminder)
+
+            return reminder_out(db, reminder, user)
+
+        event = db.get(CalendarEvent, key)
+        if not event:
+            raise NotExistError("Event not found")
+
+        if str(event.created_by) != user.user_id:
+            raise PermissionDeniedError("Only the TPO who created this event can edit it")
+
+        if event.status == "cancelled":
+            raise PermissionDeniedError("A cancelled event cannot be edited")
+
+        apply_payload(event, payload)
+        apply_change_notes(event, payload)
+
+        if payload.audience:
+            audience = _audience_of(db, event.event_id)
+            if audience:
+                audience.opportunity_type = payload.audience.opportunity_type
+                audience.courses = payload.audience.courses
+                audience.batches = payload.audience.batches
+                audience.departments = payload.audience.departments
+            sync_recipients(db, event, payload.audience)
+            # autoflush is off — the scheduler reads these rows back.
+            db.flush()
+
+        nudges.schedule_for_event(db, event)
         db.commit()
-        db.refresh(reminder)
-        nudges.schedule_for_reminder(db, reminder)
+        db.refresh(event)
 
-        return reminder_out(reminder, user)
-
-    event = CalendarEvent(org_id=uuid.UUID(user.org_id), created_by=uuid.UUID(user.user_id))
-    apply_payload(event, payload)
-    db.add(event)
-    db.flush()
-
-    if payload.audience:
-        db.add(
-            CalendarEventAudience(
-                event_id=event.event_id,
-                opportunity_type=payload.audience.opportunity_type,
-                courses=payload.audience.courses,
-                batches=payload.audience.batches,
-                departments=payload.audience.departments,
-            )
-        )
-        sync_recipients(db, event, payload.audience)
-
-    db.commit()
-    db.refresh(event)
-    nudges.schedule_for_event(db, event)
-
-    return event_out(db, event, user)
+        return event_out(db, event, user)
+    except Exception as err:
+        LOGGER.error("update_event failed: %s", err)
+        db.rollback()
+        raise
 
 
-def update_event(db: Session, user: HardcodedUser, event_id: str, payload: EventIn) -> EventOut:
-    key = as_uuid(event_id)
-    reminder = db.get(CalendarReminder, key)
-    if reminder:
-        if str(reminder.owner_id) != user.user_id:
-            raise PermissionError("Only the owner can edit this reminder")
-        reminder.title = payload.title
-        reminder.reminder_date = payload.event_date
-        reminder.reminder_time = payload.start_time
-        reminder.note = payload.note
-        reminder.remind_before = payload.remind_before or "none"
-        reminder.linked_type = payload.linked_type
-        reminder.linked_id = uuid.UUID(payload.linked_id) if payload.linked_id else None
+def cancel_event(db: Session, user: SignedInUser, event_id: str, reason: str, note: str | None) -> EventOut:
+    try:
+        event = db.get(CalendarEvent, as_uuid(event_id))
+        if not event:
+            raise NotExistError("Event not found")
+
+        if str(event.created_by) != user.user_id:
+            raise PermissionDeniedError("Only the TPO who created this event can cancel it")
+
+        finished = event.end_at or event.start_at
+        if finished and finished <= _now():
+            raise PermissionDeniedError("An event can only be cancelled before it ends")
+
+        event.status = "cancelled"
+        event.cancel_reason = reason
+        event.cancel_note = note
+        event.cancelled_by = as_uuid(user.user_id)
+        event.cancelled_at = _now()
+        db.flush()
+        nudges.schedule_for_event(db, event)
         db.commit()
-        db.refresh(reminder)
-        nudges.schedule_for_reminder(db, reminder)
+        db.refresh(event)
 
-        return reminder_out(reminder, user)
-
-    event = db.get(CalendarEvent, key)
-    if not event:
-        raise LookupError("Event not found")
-
-    if str(event.created_by) != user.user_id:
-        raise PermissionError("Only the TPO who created this event can edit it")
-
-    if event.status == "cancelled":
-        raise PermissionError("A cancelled event cannot be edited")
-
-    apply_payload(event, payload)
-    apply_change_notes(event, payload)
-
-    if payload.audience:
-        audience = _audience_of(db, event.event_id)
-        if audience:
-            audience.opportunity_type = payload.audience.opportunity_type
-            audience.courses = payload.audience.courses
-            audience.batches = payload.audience.batches
-            audience.departments = payload.audience.departments
-        sync_recipients(db, event, payload.audience)
-
-    db.commit()
-    db.refresh(event)
-    nudges.schedule_for_event(db, event)
-
-    return event_out(db, event, user)
+        return event_out(db, event, user)
+    except Exception as err:
+        LOGGER.error("cancel_event failed: %s", err)
+        db.rollback()
+        raise
 
 
-def cancel_event(db: Session, user: HardcodedUser, event_id: str, reason: str, note: str | None) -> EventOut:
-    event = db.get(CalendarEvent, as_uuid(event_id))
-    if not event:
-        raise LookupError("Event not found")
+def delete_item(db: Session, user: SignedInUser, item_id: str) -> str:
+    try:
+        key = as_uuid(item_id)
 
-    if str(event.created_by) != user.user_id:
-        raise PermissionError("Only the TPO who created this event can cancel it")
+        reminder = db.get(CalendarReminder, key)
+        if reminder:
+            if str(reminder.owner_id) != user.user_id:
+                raise PermissionDeniedError("Only the owner can delete this reminder")
+            db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
+            db.delete(reminder)
+            db.commit()
 
-    finished = event.end_at or event.start_at
-    if finished and finished <= _now():
-        raise PermissionError("An event can only be cancelled before it ends")
+            return "reminder"
 
-    event.status = "cancelled"
-    event.cancel_reason = reason
-    event.cancel_note = note
-    event.cancelled_by = uuid.UUID(user.user_id)
-    event.cancelled_at = _now()
-    db.commit()
-    db.refresh(event)
-    nudges.schedule_for_event(db, event)
+        event = db.get(CalendarEvent, key)
+        if not event:
+            raise NotExistError("Not found")
 
-    return event_out(db, event, user)
+        if str(event.created_by) != user.user_id:
+            raise PermissionDeniedError("Only the TPO who created this event can delete it")
 
-
-def delete_item(db: Session, user: HardcodedUser, item_id: str) -> str:
-    key = as_uuid(item_id)
-
-    reminder = db.get(CalendarReminder, key)
-    if reminder:
-        if str(reminder.owner_id) != user.user_id:
-            raise PermissionError("Only the owner can delete this reminder")
+        db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == key).delete()
+        db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == key).delete()
         db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
-        db.delete(reminder)
+        db.delete(event)
         db.commit()
 
-        return "reminder"
-
-    event = db.get(CalendarEvent, key)
-    if not event:
-        raise LookupError("Not found")
-
-    if str(event.created_by) != user.user_id:
-        raise PermissionError("Only the TPO who created this event can delete it")
-
-    db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == key).delete()
-    db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == key).delete()
-    db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
-    db.delete(event)
-    db.commit()
-
-    return "event"
+        return "event"
+    except Exception as err:
+        LOGGER.error("delete_item failed: %s", err)
+        db.rollback()
+        raise
 
 
-def delete_many(db: Session, user: HardcodedUser, item_ids: list[str]) -> dict[str, list[str]]:
+def delete_many(db: Session, user: SignedInUser, item_ids: list[str]) -> dict[str, list[str]]:
     deleted: list[str] = []
     skipped: list[str] = []
 
@@ -500,28 +550,33 @@ def delete_many(db: Session, user: HardcodedUser, item_ids: list[str]) -> dict[s
     return {"deleted": deleted, "skipped": skipped}
 
 
-def delete_everything(db: Session, user: HardcodedUser) -> int:
-    events = list(db.scalars(select(CalendarEvent).where(CalendarEvent.org_id == uuid.UUID(user.org_id))))
-    reminders = list(
-        db.scalars(select(CalendarReminder).where(CalendarReminder.owner_id == uuid.UUID(user.user_id)))
-    )
+def delete_everything(db: Session, user: SignedInUser) -> int:
+    try:
+        events = list(db.scalars(select(CalendarEvent).where(CalendarEvent.org_id == uuid.UUID(user.org_id))))
+        reminders = list(
+            db.scalars(select(CalendarReminder).where(CalendarReminder.owner_id == uuid.UUID(user.user_id)))
+        )
 
-    for event in events:
-        db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == event.event_id).delete()
-        db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == event.event_id).delete()
-        db.query(CalendarNudge).filter(CalendarNudge.item_id == event.event_id).delete()
-        db.delete(event)
+        for event in events:
+            db.query(CalendarEventRecipient).filter(CalendarEventRecipient.event_id == event.event_id).delete()
+            db.query(CalendarEventAudience).filter(CalendarEventAudience.event_id == event.event_id).delete()
+            db.query(CalendarNudge).filter(CalendarNudge.item_id == event.event_id).delete()
+            db.delete(event)
 
-    for reminder in reminders:
-        db.query(CalendarNudge).filter(CalendarNudge.item_id == reminder.reminder_id).delete()
-        db.delete(reminder)
+        for reminder in reminders:
+            db.query(CalendarNudge).filter(CalendarNudge.item_id == reminder.reminder_id).delete()
+            db.delete(reminder)
 
-    db.commit()
+        db.commit()
 
-    return len(events) + len(reminders)
+        return len(events) + len(reminders)
+    except Exception as err:
+        LOGGER.error("delete_everything failed: %s", err)
+        db.rollback()
+        raise
 
 
-def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOut]:
+def notifications_for(db: Session, viewer: SignedInUser) -> list[NotificationOut]:
     rows = list(
         db.scalars(
             select(CalendarEventRecipient).where(CalendarEventRecipient.student_id == viewer.user_id)
@@ -590,24 +645,34 @@ def notifications_for(db: Session, viewer: HardcodedUser) -> list[NotificationOu
     return sorted(out, key=lambda entry: entry.created_at, reverse=True)
 
 
-def mark_seen(db: Session, viewer: HardcodedUser, notification_id: str) -> None:
-    key = as_uuid(notification_id)
-    row = db.get(CalendarEventRecipient, key) or db.get(CalendarNudge, key)
-    if not row or str(row.student_id) != viewer.user_id:
-        return
+def mark_seen(db: Session, viewer: SignedInUser, notification_id: str) -> None:
+    try:
+        key = as_uuid(notification_id)
+        row = db.get(CalendarEventRecipient, key) or db.get(CalendarNudge, key)
+        if not row or str(row.student_id) != viewer.user_id:
+            return
 
-    row.seen_at = _now()
-    db.commit()
-
-
-def mark_all_seen(db: Session, viewer: HardcodedUser) -> None:
-    rows = db.scalars(
-        select(CalendarEventRecipient).where(CalendarEventRecipient.student_id == viewer.user_id)
-    )
-    for row in rows:
         row.seen_at = _now()
+        db.commit()
+    except Exception as err:
+        LOGGER.error("mark_seen failed: %s", err)
+        db.rollback()
+        raise
 
-    for nudge in nudges.sent_for(db, viewer.user_id):
-        nudge.seen_at = _now()
 
-    db.commit()
+def mark_all_seen(db: Session, viewer: SignedInUser) -> None:
+    try:
+        rows = db.scalars(
+            select(CalendarEventRecipient).where(CalendarEventRecipient.student_id == viewer.user_id)
+        )
+        for row in rows:
+            row.seen_at = _now()
+
+        for nudge in nudges.sent_for(db, viewer.user_id):
+            nudge.seen_at = _now()
+
+        db.commit()
+    except Exception as err:
+        LOGGER.error("mark_all_seen failed: %s", err)
+        db.rollback()
+        raise

@@ -1,3 +1,4 @@
+import uuid
 from datetime import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -6,7 +7,9 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, select, text
 
-from app.conf import DATABASE_URL
+from app.auth.passwords import hash_password
+from app.auth.users import STUDENT, SUPER_ADMIN, TPO
+from app.conf import DATABASE_URL, DEFAULT_ORG_ID
 from app.db import models
 from app.db.session import SessionLocal
 
@@ -65,6 +68,46 @@ def seed_settings() -> str:
         return "settings row created"
 
 
+# The accounts that can sign in. They used to be a tuple in the source; seeding
+# them here means `make db-up` still leaves a usable system, and `make db-drop`
+# takes them away with everything else.
+SEED_USERS = (
+    ("Priya Sharma", "tpo@campus.test", TPO, "tpo@1234"),
+    ("Arjun Mehta", "tpo2@campus.test", TPO, "tpo2@1234"),
+    ("Meera Iyer", "admin@campus.test", SUPER_ADMIN, "admin@1234"),
+    ("Rahul Verma", "student@campus.test", STUDENT, "student@1234"),
+)
+
+
+# No id is written here: the column generates its own, so every environment gets
+# its own real uuids instead of the four made-up ones this seed used to carry.
+# Email is what decides whether a seed user is already there.
+def seed_users() -> str:
+    with SessionLocal() as db:
+        existing = {
+            row.email.lower()
+            for row in db.execute(select(models.CalendarUser)).scalars().all()
+        }
+        added = 0
+        for name, email, role, password in SEED_USERS:
+            if email.lower() in existing:
+                continue
+            db.add(
+                models.CalendarUser(
+                    org_id=uuid.UUID(DEFAULT_ORG_ID),
+                    name=name,
+                    email=email,
+                    role=role,
+                    password_hash=hash_password(password),
+                    is_active=True,
+                )
+            )
+            added += 1
+        db.commit()
+
+        return f"{added} user(s) created" if added else "users already present"
+
+
 def tables_now() -> str:
     return ", ".join(sorted(models.CalendarSettings.metadata.tables))
 
@@ -74,3 +117,4 @@ if __name__ == "__main__":
     print(run_migrations())
     print("tables:", tables_now())
     print(seed_settings())
+    print(seed_users())

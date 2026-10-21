@@ -1,5 +1,7 @@
 import uuid
 
+from app.exceptions import InvalidInputError
+
 BAD_ID = "That id is not valid"
 
 
@@ -8,4 +10,4 @@ def as_uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(str(value))
     except (AttributeError, TypeError, ValueError) as error:
-        raise ValueError(BAD_ID) from error
+        raise InvalidInputError(BAD_ID) from error

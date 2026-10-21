@@ -16,5 +16,10 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # A request that failed part-way through a write must not hand a
+        # connection back to the pool with work still pending on it.
+        db.rollback()
+        raise
     finally:
         db.close()

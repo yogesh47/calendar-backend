@@ -1,4 +1,6 @@
-from app.auth.users import HARDCODED_USERS, STUDENT
+from sqlalchemy.orm import Session
+
+from app.auth.users import students_of
 
 STUDENT_PROFILE = {
     "course": "BTech",
@@ -22,12 +24,14 @@ def count_audience(courses: list[str], batches: list[int], departments: list[str
     )
 
 
-def matching_student_ids(courses: list[str], batches: list[int], departments: list[str]) -> list[str]:
+def matching_student_ids(
+    db: Session, org_id: str, courses: list[str], batches: list[int], departments: list[str]
+) -> list[str]:
     if (
         STUDENT_PROFILE["course"] in courses
         and STUDENT_PROFILE["batch"] in batches
         and STUDENT_PROFILE["department"] in departments
     ):
-        return [user.user_id for user in HARDCODED_USERS if user.role == STUDENT]
+        return [user.user_id for user in students_of(db, org_id)]
 
     return []
