@@ -36,6 +36,16 @@ class LinkedJobIn(BaseModel):
     title: str | None = None
 
 
+# Only images this service stored itself; an event never points at an outside URL.
+IMAGE_PATH = r"^/calendar/images/[0-9a-f]{32}\.(png|jpg|webp|gif)$"
+
+
+class RecurrenceIn(BaseModel):
+    freq: Literal["daily", "weekly", "monthly"]
+    interval: int = Field(default=1, ge=1, le=12)
+    until: date
+
+
 class EventIn(BaseModel):
     event_type: str
     title: str = Field(min_length=1, max_length=120)
@@ -57,6 +67,8 @@ class EventIn(BaseModel):
     change_summary: str | None = Field(default=None, max_length=300)
     change_reason: str | None = Field(default=None, max_length=200)
     notify_on_change: bool = True
+    recurrence: RecurrenceIn | None = None
+    image_url: str | None = Field(default=None, pattern=IMAGE_PATH)
 
     @model_validator(mode="after")
     def check_by_type(self):
@@ -78,10 +90,20 @@ class EventIn(BaseModel):
             if self.mode == "online" and not (self.online_platform or "").strip():
                 raise ValueError("Online platform is required for an online event")
 
-        if self.event_type in AUDIENCE_TYPES:
+        # The audience is chosen after the event is published, so an event may
+        # arrive without one. When it does come, it has to be complete.
+        if self.audience and self.event_type in AUDIENCE_TYPES:
             audience = self.audience
-            if not audience or not audience.courses or not audience.batches or not audience.departments:
+            if not audience.courses or not audience.batches or not audience.departments:
                 raise ValueError("Course, batch and department are required")
+
+        if self.recurrence:
+            if self.event_type == "my_reminder":
+                raise ValueError("A reminder cannot repeat")
+            if self.recurrence.until < self.event_date:
+                raise ValueError("Repeat until cannot be before the start date")
+            if (self.recurrence.until - self.event_date).days > 366:
+                raise ValueError("An event can repeat for at most one year")
 
         if self.linked_job and self.linked_job.kind == "external":
             if not (self.linked_job.url or "").startswith("https://"):
@@ -95,6 +117,8 @@ class EventIn(BaseModel):
 class CancelIn(BaseModel):
     reason: Literal["postponed", "company_withdrew", "created_by_mistake", "other"]
     note: str | None = Field(default=None, max_length=200)
+    # "series" cancels this occurrence and every later one of the same series.
+    scope: Literal["one", "series"] = "one"
 
     @model_validator(mode="after")
     def check_note(self):
@@ -120,6 +144,23 @@ class AudienceCountIn(BaseModel):
 
 class AudienceCountOut(BaseModel):
     count: int
+
+
+class AudienceSetIn(BaseModel):
+    audience: AudienceIn
+
+
+class ImageIn(BaseModel):
+    # A data URL ("data:image/png;base64,...") — keeps uploads to plain JSON.
+    data_url: str = Field(min_length=32, max_length=3_000_000)
+
+
+class ImageOut(BaseModel):
+    image_url: str
+
+
+class FeedLinkOut(BaseModel):
+    url: str
 
 
 class EventOut(BaseModel):
@@ -156,6 +197,9 @@ class EventOut(BaseModel):
     change_summary: str | None = None
     change_reason: str | None = None
     deadline_counts: dict[str, int] | None = None
+    series_id: str | None = None
+    recurrence: str | None = None
+    image_url: str | None = None
 
 
 class ApplicationOut(BaseModel):

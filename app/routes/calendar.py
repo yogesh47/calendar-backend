@@ -2,11 +2,11 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_role
-from app.auth.tokens import read_token
+from app.auth.tokens import issue_feed_token, read_feed_token, read_token
 from app.auth.users import STUDENT, TPO, SignedInUser, find_by_id
 from app.db.session import get_db
 from app.exceptions import AuthenticationError, InvalidInputError, PermissionDeniedError
@@ -14,6 +14,7 @@ from app.models.calendar_model import (
     ApplicationOut,
     AudienceCountIn,
     AudienceCountOut,
+    AudienceSetIn,
     CancelIn,
     DeleteManyIn,
     DeleteOut,
@@ -21,10 +22,13 @@ from app.models.calendar_model import (
     DeviceOut,
     EventIn,
     EventOut,
+    FeedLinkOut,
+    ImageIn,
+    ImageOut,
     NotificationOut,
     UnreadOut,
 )
-from app.services import calendar_service, live_stream, push
+from app.services import calendar_service, ics, images, live_stream, push
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -93,6 +97,58 @@ def update_event(
     return updated
 
 
+# The step after publishing: who the event reaches. Saving notifies them.
+@router.put("/events/{event_id}/audience")
+def set_audience(
+    event_id: str,
+    payload: AudienceSetIn,
+    user: Annotated[SignedInUser, Depends(require_role(TPO))],
+    db: Annotated[Session, Depends(get_db)],
+) -> EventOut:
+    updated = calendar_service.set_audience(db, user, event_id, payload.audience)
+    live_stream.publish(user.org_id, updated.event_id)
+
+    return updated
+
+
+# Stores an image for an event and answers the path to put on it.
+@router.post("/images", status_code=status.HTTP_201_CREATED)
+def upload_image(payload: ImageIn, _: Annotated[SignedInUser, Depends(calendar_user)]) -> ImageOut:
+    return ImageOut(image_url=images.save(payload.data_url))
+
+
+# Serves an event image. Open on purpose: an <img> tag cannot send a token, and
+# the names are random 128-bit ids, not guessable ones.
+@router.get("/images/{name}")
+def read_image(name: str) -> FileResponse:
+    path, media_type = images.path_of(name)
+
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+# The signed-in user's personal subscription URL for Google / Outlook / Apple Calendar.
+@router.get("/feed/link")
+def feed_link(request: Request, user: Annotated[SignedInUser, Depends(calendar_user)]) -> FeedLinkOut:
+    return FeedLinkOut(url=f"{str(request.base_url).rstrip('/')}/calendar/feed.ics?token={issue_feed_token(user)}")
+
+
+# The .ics feed itself. Calendar apps poll this; the token in the URL says whose it is.
+@router.get("/feed.ics")
+def feed(token: str, db: Annotated[Session, Depends(get_db)]) -> Response:
+    claims = read_feed_token(token)
+    user = find_by_id(db, str(claims.get("sub", ""))) if claims else None
+    if not user or user.role not in (TPO, STUDENT):
+        raise AuthenticationError("This calendar link is no longer valid")
+
+    body = ics.build(calendar_service.list_items(db, user), "Campus Calendar")
+
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'inline; filename="campus-calendar.ics"'},
+    )
+
+
 # Cancels an event with a reason; the item stays on the calendar as cancelled.
 @router.post("/events/{event_id}/cancel")
 def cancel_event(
@@ -101,7 +157,7 @@ def cancel_event(
     user: Annotated[SignedInUser, Depends(require_role(TPO))],
     db: Annotated[Session, Depends(get_db)],
 ) -> EventOut:
-    cancelled = calendar_service.cancel_event(db, user, event_id, payload.reason, payload.note)
+    cancelled = calendar_service.cancel_event(db, user, event_id, payload.reason, payload.note, payload.scope)
     live_stream.publish(user.org_id, cancelled.event_id)
 
     return cancelled

@@ -13,7 +13,7 @@ from app.db.models import (
     CalendarNudge,
     CalendarReminder,
 )
-from app.exceptions import NotExistError, PermissionDeniedError
+from app.exceptions import InvalidInputError, NotExistError, PermissionDeniedError
 from app.models.calendar_model import (
     ApplicationOut,
     AudienceIn,
@@ -22,7 +22,7 @@ from app.models.calendar_model import (
     LinkedJobIn,
     NotificationOut,
 )
-from app.services import deadlines, nudges
+from app.services import deadlines, nudges, recurrence
 from app.services.clock import local_date, local_time, to_utc
 from app.services.companies import company_id_of, company_name_of
 from app.services.ids import as_uuid
@@ -140,6 +140,9 @@ def event_out(db: Session, event: CalendarEvent, viewer: SignedInUser) -> EventO
         is_owner=str(event.created_by) == viewer.user_id,
         applies_to_me=mine.state == "active" if mine else True,
         removed_reason=mine.removed_reason if mine and mine.state == "removed" else None,
+        series_id=str(event.series_id) if event.series_id else None,
+        recurrence=event.recurrence,
+        image_url=event.image_url,
     )
 
 
@@ -346,6 +349,55 @@ def apply_payload(event: CalendarEvent, payload: EventIn) -> None:
         if payload.linked_job
         else None
     )
+    event.image_url = payload.image_url
+
+
+def _shifted(payload: EventIn, day: date) -> EventIn:
+    """The same event moved to another day, keeping how many days it spans."""
+    span = (payload.end_date or payload.event_date) - payload.event_date
+
+    return payload.model_copy(update={"event_date": day, "end_date": day + span})
+
+
+def _set_audience(db: Session, event: CalendarEvent, audience: AudienceIn) -> None:
+    row = _audience_of(db, event.event_id)
+    if row:
+        row.opportunity_type = audience.opportunity_type
+        row.courses = audience.courses
+        row.batches = audience.batches
+        row.departments = audience.departments
+    else:
+        db.add(
+            CalendarEventAudience(
+                event_id=event.event_id,
+                opportunity_type=audience.opportunity_type,
+                courses=audience.courses,
+                batches=audience.batches,
+                departments=audience.departments,
+            )
+        )
+    sync_recipients(db, event, audience)
+    # autoflush is off, so the recipients have to reach the transaction before
+    # schedule_for_event reads them back.
+    db.flush()
+
+
+def _series_from(db: Session, event: CalendarEvent) -> list[CalendarEvent]:
+    """This occurrence and every later one of its series that is still on."""
+    if not event.series_id:
+        return [event]
+
+    return list(
+        db.scalars(
+            select(CalendarEvent)
+            .where(
+                CalendarEvent.series_id == event.series_id,
+                CalendarEvent.event_date >= event.event_date,
+                CalendarEvent.status != "cancelled",
+            )
+            .order_by(CalendarEvent.event_date)
+        )
+    )
 
 
 # One unit of work: the row, its audience, its recipients and its nudges are
@@ -380,31 +432,33 @@ def create_event(db: Session, user: SignedInUser, payload: EventIn) -> EventOut:
 
                 return reminder_out(db, reminder, user)
 
-            event = CalendarEvent(org_id=org_id, created_by=owner_id)
-            apply_payload(event, payload)
-            db.add(event)
-            db.flush()
+            # One row per occurrence; a one-off event is a series of one.
+            days = recurrence.occurrences(payload.event_date, payload.recurrence) if payload.recurrence else [
+                payload.event_date
+            ]
+            rule = recurrence.encode(payload.recurrence) if payload.recurrence else None
+            first: CalendarEvent | None = None
 
-            if payload.audience:
-                db.add(
-                    CalendarEventAudience(
-                        event_id=event.event_id,
-                        opportunity_type=payload.audience.opportunity_type,
-                        courses=payload.audience.courses,
-                        batches=payload.audience.batches,
-                        departments=payload.audience.departments,
-                    )
-                )
-                sync_recipients(db, event, payload.audience)
-                # autoflush is off, so the recipients have to reach the transaction
-                # before schedule_for_event reads them back.
+            for day in days:
+                event = CalendarEvent(org_id=org_id, created_by=owner_id, recurrence=rule)
+                apply_payload(event, _shifted(payload, day))
+                db.add(event)
                 db.flush()
+                if rule:
+                    event.series_id = first.event_id if first else event.event_id
+                first = first or event
 
-            nudges.schedule_for_event(db, event)
+                # Without an audience the event is published to nobody yet; the
+                # audience page sends it out later.
+                if payload.audience:
+                    _set_audience(db, event, payload.audience)
+
+                nudges.schedule_for_event(db, event)
+
             db.commit()
-            db.refresh(event)
+            db.refresh(first)
 
-            return event_out(db, event, user)
+            return event_out(db, first, user)
         except Exception as err:
             # Nothing half-written survives; the caller decides what the user is told.
             LOGGER.error("create_event failed: %s", err)
@@ -450,16 +504,9 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
         apply_payload(event, payload)
         apply_change_notes(event, payload)
 
+        # Editing changes this occurrence only; the series keeps its rule.
         if payload.audience:
-            audience = _audience_of(db, event.event_id)
-            if audience:
-                audience.opportunity_type = payload.audience.opportunity_type
-                audience.courses = payload.audience.courses
-                audience.batches = payload.audience.batches
-                audience.departments = payload.audience.departments
-            sync_recipients(db, event, payload.audience)
-            # autoflush is off — the scheduler reads these rows back.
-            db.flush()
+            _set_audience(db, event, payload.audience)
 
         nudges.schedule_for_event(db, event)
         db.commit()
@@ -472,7 +519,41 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
         raise
 
 
-def cancel_event(db: Session, user: SignedInUser, event_id: str, reason: str, note: str | None) -> EventOut:
+# The step after publishing: who the event reaches. Saving it is what notifies
+# them. For a recurring event it applies to this occurrence and every later one,
+# because "who is this for" is a question about the series, not one date.
+def set_audience(db: Session, user: SignedInUser, event_id: str, audience: AudienceIn) -> EventOut:
+    try:
+        event = db.get(CalendarEvent, as_uuid(event_id))
+        if not event:
+            raise NotExistError("Event not found")
+
+        if str(event.created_by) != user.user_id:
+            raise PermissionDeniedError("Only the TPO who created this event can choose its audience")
+
+        if event.status == "cancelled":
+            raise PermissionDeniedError("A cancelled event cannot be sent to anyone")
+
+        if not audience.courses or not audience.batches or not audience.departments:
+            raise InvalidInputError("Course, batch and department are required")
+
+        for occurrence in _series_from(db, event):
+            _set_audience(db, occurrence, audience)
+            nudges.schedule_for_event(db, occurrence)
+
+        db.commit()
+        db.refresh(event)
+
+        return event_out(db, event, user)
+    except Exception as err:
+        LOGGER.error("set_audience failed: %s", err)
+        db.rollback()
+        raise
+
+
+def cancel_event(
+    db: Session, user: SignedInUser, event_id: str, reason: str, note: str | None, scope: str = "one"
+) -> EventOut:
     try:
         event = db.get(CalendarEvent, as_uuid(event_id))
         if not event:
@@ -485,13 +566,15 @@ def cancel_event(db: Session, user: SignedInUser, event_id: str, reason: str, no
         if finished and finished <= _now():
             raise PermissionDeniedError("An event can only be cancelled before it ends")
 
-        event.status = "cancelled"
-        event.cancel_reason = reason
-        event.cancel_note = note
-        event.cancelled_by = as_uuid(user.user_id)
-        event.cancelled_at = _now()
-        db.flush()
-        nudges.schedule_for_event(db, event)
+        for occurrence in _series_from(db, event) if scope == "series" else [event]:
+            occurrence.status = "cancelled"
+            occurrence.cancel_reason = reason
+            occurrence.cancel_note = note
+            occurrence.cancelled_by = as_uuid(user.user_id)
+            occurrence.cancelled_at = _now()
+            db.flush()
+            nudges.schedule_for_event(db, occurrence)
+
         db.commit()
         db.refresh(event)
 

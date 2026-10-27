@@ -1,0 +1,106 @@
+"""
+The calendar as an iCalendar (.ics) feed.
+
+Google Calendar, Outlook and Apple Calendar all subscribe to a URL like this and
+re-read it on their own schedule, so the student's own calendar follows the
+campus one without an OAuth integration. It is read-only by design: changes are
+made here and flow out.
+"""
+
+import re
+from datetime import date, datetime, time, timedelta, timezone
+
+from app.models.calendar_model import EventOut
+from app.services.clock import ORG_TIMEZONE
+
+TAGS = re.compile(r"<[^>]+>")
+
+
+def _escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _plain(html: str | None) -> str:
+    text = TAGS.sub(" ", (html or "").replace("</p>", "\n").replace("<br>", "\n"))
+
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def _utc(day: date, clock: str) -> str:
+    moment = datetime.combine(day, time.fromisoformat(clock), tzinfo=ORG_TIMEZONE)
+
+    return moment.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")  # noqa: UP017
+
+
+# RFC 5545 caps a line at 75 octets; longer ones continue on a line starting with a space.
+def _fold(line: str) -> str:
+    raw = line.encode()
+    if len(raw) <= 75:
+        return line
+
+    parts, current = [], b""
+    for char in line:
+        encoded = char.encode()
+        if len(current) + len(encoded) > (75 if not parts else 74):
+            parts.append(current.decode())
+            current = b""
+        current += encoded
+    parts.append(current.decode())
+
+    return "\r\n ".join(parts)
+
+
+def _event(item: EventOut, stamp: str) -> list[str]:
+    lines = ["BEGIN:VEVENT", f"UID:{item.event_id}@campus-calendar", f"DTSTAMP:{stamp}"]
+
+    if item.start_time:
+        end_day = item.end_date or item.event_date
+        end_clock = item.end_time or item.start_time
+        lines.append(f"DTSTART:{_utc(item.event_date, item.start_time)}")
+        lines.append(f"DTEND:{_utc(end_day, end_clock)}")
+    else:
+        lines.append(f"DTSTART;VALUE=DATE:{item.event_date:%Y%m%d}")
+        lines.append(f"DTEND;VALUE=DATE:{item.event_date + timedelta(days=1):%Y%m%d}")
+
+    lines.append(f"SUMMARY:{_escape(item.title)}")
+
+    where = item.venue if item.mode == "offline" else item.online_platform
+    if where:
+        lines.append(f"LOCATION:{_escape(where)}")
+
+    details = _plain(item.description or item.note)
+    if item.company:
+        details = f"{item.company}\n{details}".strip()
+    if details:
+        lines.append(f"DESCRIPTION:{_escape(details)}")
+
+    lines.append(f"STATUS:{'CANCELLED' if item.status == 'cancelled' else 'CONFIRMED'}")
+    lines.append(f"LAST-MODIFIED:{item.updated_at.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}")  # noqa: UP017
+    lines.append("END:VEVENT")
+
+    return lines
+
+
+def build(items: list[EventOut], name: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")  # noqa: UP017
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//7Seers//Campus Calendar//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_escape(name)}",
+        "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+        "X-PUBLISHED-TTL:PT1H",
+    ]
+
+    for item in items:
+        # Nudges are alerts about other items, and an event that no longer
+        # applies to the student should drop out of their calendar too.
+        if item.event_type == "nudge" or not item.applies_to_me:
+            continue
+        lines.extend(_event(item, stamp))
+
+    lines.append("END:VCALENDAR")
+
+    return "\r\n".join(_fold(line) for line in lines) + "\r\n"

@@ -9,6 +9,7 @@ class CalendarEvent(Base):
     __table_args__ = (
         Index("ix_calendar_event_org_date", "org_id", "event_date"),
         Index("ix_calendar_event_org_status", "org_id", "status"),
+        Index("ix_calendar_event_series", "series_id"),
     )
 
     event_id = columns.primary_key()
@@ -38,3 +39,9 @@ class CalendarEvent(Base):
     change_summary = columns.text(300)
     change_reason = columns.text(200)
     notify_on_change = columns.flag(default=True)
+    # A recurring event is stored as one row per occurrence. They share
+    # `series_id` (the first row's id) and keep the rule they came from, so each
+    # occurrence still has its own recipients, nudges and cancel state.
+    series_id = columns.optional_id()
+    recurrence = columns.text(80)
+    image_url = columns.text(300)

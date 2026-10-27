@@ -22,6 +22,11 @@ CALENDAR_MAX_RANGE_DAYS = int(environ.get("CALENDAR_MAX_RANGE_DAYS", "62"))
 STUDENT_REMINDER_LIMIT = int(environ.get("STUDENT_REMINDER_LIMIT", "50"))
 CAMPUS_CALENDAR_ENABLED = environ.get("CAMPUS_CALENDAR_ENABLED", "true").lower() == "true"
 
+UPLOAD_DIR = environ.get("UPLOAD_DIR", "uploads")
+IMAGE_MAX_BYTES = int(environ.get("IMAGE_MAX_BYTES", str(2 * 1024 * 1024)))
+RECURRENCE_MAX_OCCURRENCES = int(environ.get("RECURRENCE_MAX_OCCURRENCES", "52"))
+FEED_TOKEN_DAYS = int(environ.get("FEED_TOKEN_DAYS", "365"))
+
 CORS_ORIGINS = [
     origin.strip()
     for origin in environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
