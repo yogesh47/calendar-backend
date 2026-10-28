@@ -12,6 +12,7 @@ docs/
 ├── schema.md            tables, columns aur unke peeche ki wajah
 ├── libraries.md         kaun si library, kyun aur kahan
 ├── credentials.md       logins, DB, ports
+├── timezone.md          time zones: kya bhejna hai, kahan save, nudge kis clock par
 └── flows/
     ├── create-event.md  event banne ka pura flow, line by line
     ├── nudges.md        nudge kab, kahan se, kaise jaata hai

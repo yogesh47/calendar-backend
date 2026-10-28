@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.clock import canonical_zone, is_zone
+
 EVENT_TYPES = (
     "ppt",
     "company_visit",
@@ -69,6 +71,9 @@ class EventIn(BaseModel):
     notify_on_change: bool = True
     recurrence: RecurrenceIn | None = None
     image_url: str | None = Field(default=None, pattern=IMAGE_PATH)
+    # The zone the times above are in. Left out: the org's campus time for an
+    # event, the user's own zone for a reminder.
+    time_zone: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def check_by_type(self):
@@ -89,6 +94,12 @@ class EventIn(BaseModel):
                 raise ValueError("Venue is required for an offline event")
             if self.mode == "online" and not (self.online_platform or "").strip():
                 raise ValueError("Online platform is required for an online event")
+        elif self.mode == "offline" and not (self.venue or "").strip():
+            # A type that asks for no mode (an online test, a deadline) keeps
+            # none rather than a form default with no place behind it.
+            self.mode = None
+        elif self.mode == "online" and not (self.online_platform or "").strip():
+            self.mode = None
 
         # The audience is chosen after the event is published, so an event may
         # arrive without one. When it does come, it has to be complete.
@@ -97,9 +108,11 @@ class EventIn(BaseModel):
             if not audience.courses or not audience.batches or not audience.departments:
                 raise ValueError("Course, batch and department are required")
 
+        self.time_zone = canonical_zone(self.time_zone)
+        if self.time_zone and not is_zone(self.time_zone):
+            raise ValueError("That is not a time zone")
+
         if self.recurrence:
-            if self.event_type == "my_reminder":
-                raise ValueError("A reminder cannot repeat")
             if self.recurrence.until < self.event_date:
                 raise ValueError("Repeat until cannot be before the start date")
             if (self.recurrence.until - self.event_date).days > 366:
@@ -200,6 +213,11 @@ class EventOut(BaseModel):
     series_id: str | None = None
     recurrence: str | None = None
     image_url: str | None = None
+    # The real moments, in UTC, and the zone the dates and times above are in —
+    # so a client anywhere can show them in its own time.
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    time_zone: str | None = None
 
 
 class ApplicationOut(BaseModel):

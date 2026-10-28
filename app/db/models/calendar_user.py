@@ -23,5 +23,7 @@ class CalendarUser(Base):
     role = columns.text(20, nullable=False)
     password_hash = columns.text(255, nullable=False)
     is_active = columns.flag(default=True)
+    # Where the user is (their browser's zone); their nudges and messages read in it.
+    time_zone = columns.text(64)
     created_at = columns.created_at()
     updated_at = columns.updated_at()

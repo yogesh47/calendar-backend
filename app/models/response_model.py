@@ -7,6 +7,9 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    # Where the user is, and their org's campus time.
+    time_zone: str | None = None
+    org_time_zone: str
 
 
 class LoginResponse(BaseModel):

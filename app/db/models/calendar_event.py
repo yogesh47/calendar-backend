@@ -45,3 +45,5 @@ class CalendarEvent(Base):
     series_id = columns.optional_id()
     recurrence = columns.text(80)
     image_url = columns.text(300)
+    # The zone its times were typed in (the org's campus time).
+    time_zone = columns.text(64)

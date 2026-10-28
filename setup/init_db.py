@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select, text
 
 from app.auth.passwords import hash_password
 from app.auth.users import STUDENT, SUPER_ADMIN, TPO
-from app.conf import DATABASE_URL, DEFAULT_ORG_ID
+from app.conf import DATABASE_URL, DEFAULT_ORG_ID, DEFAULT_ORG_TIMEZONE
 from app.db import models
 from app.db.session import SessionLocal
 
@@ -46,7 +46,9 @@ def run_migrations() -> str:
     return "schema is up to date"
 
 
-# The platform runs on one settings row; create it the first time only.
+# The template settings row (no org_id) — each college's own row is copied from
+# it the first time that college is read. Its zone is the .env default and is
+# marked "default", so a college's first staff sign-in replaces it with theirs.
 def seed_settings() -> str:
     with SessionLocal() as db:
         if db.execute(select(models.CalendarSettings)).scalars().first():
@@ -61,6 +63,8 @@ def seed_settings() -> str:
                 daily_nudge_limit=3,
                 quiet_hours_start=time(22, 0),
                 quiet_hours_end=time(7, 0),
+                time_zone=DEFAULT_ORG_TIMEZONE,
+                time_zone_source="default",
             )
         )
         db.commit()

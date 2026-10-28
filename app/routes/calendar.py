@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_role
 from app.auth.tokens import issue_feed_token, read_feed_token, read_token
 from app.auth.users import STUDENT, TPO, SignedInUser, find_by_id
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.exceptions import AuthenticationError, InvalidInputError, PermissionDeniedError
 from app.models.calendar_model import (
     ApplicationOut,
@@ -164,13 +164,15 @@ def cancel_event(
 
 
 # Permanently deletes one reminder, or a cancelled event the TPO created.
+# `scope=series` on a repeating reminder takes this date and every later one.
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_one(
     event_id: str,
     user: Annotated[SignedInUser, Depends(calendar_user)],
     db: Annotated[Session, Depends(get_db)],
+    scope: Literal["one", "series"] = "one",
 ) -> None:
-    calendar_service.delete_item(db, user, event_id)
+    calendar_service.delete_item(db, user, event_id, scope)
     live_stream.publish(user.org_id, event_id)
 
 
@@ -287,12 +289,17 @@ def forget_device(
 
 # Keeps an SSE connection open so a calendar refreshes the moment anything changes.
 @router.get("/stream")
-async def stream(request: Request, db: Annotated[Session, Depends(get_db)]) -> StreamingResponse:
+async def stream(request: Request) -> StreamingResponse:
     # The browser's EventSource cannot send an Authorization header, so the token
     # rides in the query string — the same token, read the same way.
     token = request.query_params.get("token", "")
     claims = read_token(token)
-    user = find_by_id(db, str(claims.get("sub", ""))) if claims else None
+    # Its own short session, closed before streaming starts. Taking it from
+    # get_db held a pool connection for as long as the tab stayed open, and a
+    # handful of open tabs used the whole pool up — every other request then
+    # waited forever for a connection.
+    with SessionLocal() as db:
+        user = find_by_id(db, str(claims.get("sub", ""))) if claims else None
     if not user:
         raise AuthenticationError("Your session has expired")
 

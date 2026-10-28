@@ -31,6 +31,8 @@ class SignedInUser:
     name: str
     email: str
     role: str
+    # Where the user is; None until their browser has said.
+    time_zone: str | None = None
 
 
 def to_user(row: CalendarUser) -> SignedInUser:
@@ -40,6 +42,7 @@ def to_user(row: CalendarUser) -> SignedInUser:
         name=row.name,
         email=row.email,
         role=row.role,
+        time_zone=row.time_zone,
     )
 
 

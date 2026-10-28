@@ -23,11 +23,12 @@ from app.models.calendar_model import (
     NotificationOut,
 )
 from app.services import deadlines, nudges, recurrence
-from app.services.clock import local_date, local_time, to_utc
+from app.services.clock import local_date, local_time, to_utc, zone_label
 from app.services.companies import company_id_of, company_name_of
 from app.services.ids import as_uuid
 from app.services.jobs import apply_to, job_by_id
 from app.services.jobs import withdraw as withdraw_from
+from app.services.settings_service import org_zone
 from app.services.students import count_audience, matching_student_ids
 
 LOGGER = logging.getLogger("calendar.service")
@@ -46,6 +47,11 @@ def _now() -> datetime:
 
 def _text(value: time | None) -> str | None:
     return value.strftime("%H:%M") if value else None
+
+
+def viewer_zone(db: Session, viewer: SignedInUser) -> str:
+    """Where the viewer is — their own zone, or their org's until their browser has said."""
+    return viewer.time_zone or org_zone(db, viewer.org_id)
 
 
 def _name_of(db: Session, user_id) -> str:
@@ -109,9 +115,12 @@ def event_out(db: Session, event: CalendarEvent, viewer: SignedInUser) -> EventO
         title=event.title,
         company=company_name_of(event.company_id),
         event_date=event.event_date,
-        end_date=local_date(event.end_at) or event.event_date,
-        start_time=local_time(event.start_at),
-        end_time=local_time(event.end_at),
+        end_date=local_date(event.end_at, event.time_zone) or event.event_date,
+        start_time=local_time(event.start_at, event.time_zone),
+        end_time=local_time(event.end_at, event.time_zone),
+        starts_at=event.start_at,
+        ends_at=event.end_at,
+        time_zone=event.time_zone,
         mode=event.mode,
         venue=event.venue,
         online_platform=event.online_platform,
@@ -176,20 +185,26 @@ def reminder_out(db: Session, reminder: CalendarReminder, viewer: SignedInUser) 
         linked_type=reminder.linked_type,
         linked_id=str(reminder.linked_id) if reminder.linked_id else None,
         is_owner=str(reminder.owner_id) == viewer.user_id,
+        series_id=str(reminder.series_id) if reminder.series_id else None,
+        recurrence=reminder.recurrence,
+        starts_at=to_utc(reminder.reminder_date, reminder.reminder_time, reminder.time_zone),
+        time_zone=reminder.time_zone,
     )
 
 
-def nudge_out(db: Session, row) -> EventOut:
+def nudge_out(db: Session, row, zone: str | None = None) -> EventOut:
     moment = row.sent_at or row.scheduled_at
 
     return EventOut(
         event_id=str(row.nudge_id),
         event_type="nudge",
-        title=nudges.message_for(db, row),
+        title=nudges.message_for(db, row, zone),
         company=None,
-        event_date=local_date(moment),
-        end_date=local_date(moment),
-        start_time=local_time(moment),
+        event_date=local_date(moment, zone),
+        end_date=local_date(moment, zone),
+        start_time=local_time(moment, zone),
+        starts_at=moment,
+        time_zone=zone,
         end_time=None,
         mode=None,
         venue=None,
@@ -253,7 +268,7 @@ def list_items(
     items = (
         [event_out(db, event, viewer) for event in events]
         + [reminder_out(db, reminder, viewer) for reminder in reminders]
-        + [nudge_out(db, row) for row in sent_nudges]
+        + [nudge_out(db, row, viewer_zone(db, viewer)) for row in sent_nudges]
         + deadlines.deadline_items(db, viewer)
     )
 
@@ -281,13 +296,14 @@ def withdraw_application(db: Session, user: SignedInUser, job_id: str) -> None:
 
 # The mobile "Coming Up" card: the next few items the viewer still cares about.
 def coming_up(db: Session, viewer: SignedInUser, limit: int = 3) -> list[EventOut]:
-    today = local_date(_now())
+    today = local_date(_now(), viewer_zone(db, viewer))
     upcoming = [
         item
         for item in list_items(db, viewer, start=today)
         if item.status != "cancelled" and item.applies_to_me and item.event_type != "nudge"
     ]
-    upcoming.sort(key=lambda item: (item.event_date, item.start_time or "00:00"))
+    # By the real moment where there is one, so items typed in different zones still sort right.
+    upcoming.sort(key=lambda item: item.starts_at or to_utc(item.event_date, time(0, 0), item.time_zone))
 
     return upcoming[:limit]
 
@@ -331,13 +347,14 @@ def apply_change_notes(event: CalendarEvent, payload: EventIn) -> None:
     event.notify_on_change = payload.notify_on_change
 
 
-def apply_payload(event: CalendarEvent, payload: EventIn) -> None:
+def apply_payload(event: CalendarEvent, payload: EventIn, zone: str) -> None:
     event.event_type = payload.event_type
     event.title = payload.title
     event.company_id = company_id_of(payload.company)
     event.event_date = payload.event_date
-    event.start_at = to_utc(payload.event_date, payload.start_time)
-    event.end_at = to_utc(payload.end_date or payload.event_date, payload.end_time)
+    event.time_zone = zone
+    event.start_at = to_utc(payload.event_date, payload.start_time, zone)
+    event.end_at = to_utc(payload.end_date or payload.event_date, payload.end_time, zone)
     event.mode = payload.mode
     event.venue = payload.venue
     event.online_platform = payload.online_platform
@@ -411,26 +428,40 @@ def create_event(db: Session, user: SignedInUser, payload: EventIn) -> EventOut:
 
         try:
             if payload.event_type == "my_reminder":
-                reminder = CalendarReminder(
-                    org_id=org_id,
-                    owner_id=owner_id,
-                    owner_role=user.role,
-                    title=payload.title,
-                    reminder_date=payload.event_date,
-                    reminder_time=payload.start_time,
-                    note=payload.note,
-                    remind_before=payload.remind_before or "none",
-                    linked_type=payload.linked_type,
-                    linked_id=linked_id,
-                )
-                db.add(reminder)
-                # The id the nudge hangs off is assigned by the flush, not the commit.
-                db.flush()
-                nudges.schedule_for_reminder(db, reminder)
-                db.commit()
-                db.refresh(reminder)
+                # One row per date; a one-off reminder is a series of one.
+                days = recurrence.occurrences(payload.event_date, payload.recurrence) if payload.recurrence else [
+                    payload.event_date
+                ]
+                rule = recurrence.encode(payload.recurrence) if payload.recurrence else None
+                first_reminder: CalendarReminder | None = None
 
-                return reminder_out(db, reminder, user)
+                for day in days:
+                    reminder = CalendarReminder(
+                        org_id=org_id,
+                        owner_id=owner_id,
+                        owner_role=user.role,
+                        title=payload.title,
+                        reminder_date=day,
+                        reminder_time=payload.start_time,
+                        note=payload.note,
+                        remind_before=payload.remind_before or "none",
+                        linked_type=payload.linked_type,
+                        linked_id=linked_id,
+                        recurrence=rule,
+                        time_zone=payload.time_zone or viewer_zone(db, user),
+                    )
+                    db.add(reminder)
+                    # The id the nudge hangs off is assigned by the flush, not the commit.
+                    db.flush()
+                    if rule:
+                        reminder.series_id = first_reminder.reminder_id if first_reminder else reminder.reminder_id
+                    first_reminder = first_reminder or reminder
+                    nudges.schedule_for_reminder(db, reminder)
+
+                db.commit()
+                db.refresh(first_reminder)
+
+                return reminder_out(db, first_reminder, user)
 
             # One row per occurrence; a one-off event is a series of one.
             days = recurrence.occurrences(payload.event_date, payload.recurrence) if payload.recurrence else [
@@ -441,7 +472,7 @@ def create_event(db: Session, user: SignedInUser, payload: EventIn) -> EventOut:
 
             for day in days:
                 event = CalendarEvent(org_id=org_id, created_by=owner_id, recurrence=rule)
-                apply_payload(event, _shifted(payload, day))
+                apply_payload(event, _shifted(payload, day), payload.time_zone or org_zone(db, user.org_id))
                 db.add(event)
                 db.flush()
                 if rule:
@@ -484,6 +515,7 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
             reminder.remind_before = payload.remind_before or "none"
             reminder.linked_type = payload.linked_type
             reminder.linked_id = as_uuid(payload.linked_id) if payload.linked_id else None
+            reminder.time_zone = payload.time_zone or reminder.time_zone or viewer_zone(db, user)
             db.flush()
             nudges.schedule_for_reminder(db, reminder)
             db.commit()
@@ -501,7 +533,7 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
         if event.status == "cancelled":
             raise PermissionDeniedError("A cancelled event cannot be edited")
 
-        apply_payload(event, payload)
+        apply_payload(event, payload, payload.time_zone or event.time_zone or org_zone(db, user.org_id))
         apply_change_notes(event, payload)
 
         # Editing changes this occurrence only; the series keeps its rule.
@@ -585,7 +617,7 @@ def cancel_event(
         raise
 
 
-def delete_item(db: Session, user: SignedInUser, item_id: str) -> str:
+def delete_item(db: Session, user: SignedInUser, item_id: str, scope: str = "one") -> str:
     try:
         key = as_uuid(item_id)
 
@@ -593,8 +625,23 @@ def delete_item(db: Session, user: SignedInUser, item_id: str) -> str:
         if reminder:
             if str(reminder.owner_id) != user.user_id:
                 raise PermissionDeniedError("Only the owner can delete this reminder")
-            db.query(CalendarNudge).filter(CalendarNudge.item_id == key).delete()
-            db.delete(reminder)
+
+            # "series" takes this date and every later one of the same repeating reminder.
+            doomed = (
+                list(
+                    db.scalars(
+                        select(CalendarReminder).where(
+                            CalendarReminder.series_id == reminder.series_id,
+                            CalendarReminder.reminder_date >= reminder.reminder_date,
+                        )
+                    )
+                )
+                if scope == "series" and reminder.series_id
+                else [reminder]
+            )
+            for row in doomed:
+                db.query(CalendarNudge).filter(CalendarNudge.item_id == row.reminder_id).delete()
+                db.delete(row)
             db.commit()
 
             return "reminder"
@@ -666,29 +713,33 @@ def notifications_for(db: Session, viewer: SignedInUser) -> list[NotificationOut
         )
     )
 
+    zone = viewer_zone(db, viewer)
     out: list[NotificationOut] = []
     for row in rows:
         event = db.get(CalendarEvent, row.event_id)
         if not event:
             continue
 
-        start = f", {local_time(event.start_at)}" if event.start_at else ""
+        # Said in the reader's own time: a New York student reads New York time.
+        day = local_date(event.start_at, zone) or event.event_date
+        when = f"{day:%d %b}"
+        start = f", {local_time(event.start_at, zone)} {zone_label(event.start_at, zone)}" if event.start_at else ""
         if event.status == "cancelled" and event.cancel_reason == "created_by_mistake":
             kind = "ignore_earlier"
             message = f"Please ignore the earlier notification about {event.title}."
         elif event.status == "cancelled":
             kind = "event_cancelled"
             message = (
-                f"{event.title} on {event.event_date:%d %b} has been cancelled. "
+                f"{event.title} on {when} has been cancelled. "
                 f"Reason: {CANCEL_REASON_LABEL.get(event.cancel_reason or '', 'Other')}."
             )
         elif row.state == "removed":
             kind = "not_applicable"
             reason = f" {event.change_reason}" if event.change_reason else ""
-            message = f"{event.title} on {event.event_date:%d %b} no longer applies to you.{reason}"
+            message = f"{event.title} on {when} no longer applies to you.{reason}"
         elif row.created_at > event.created_at + timedelta(seconds=5):
             kind = "new_event"
-            message = f"New event: {event.title} on {event.event_date:%d %b}{start}."
+            message = f"New event: {event.title} on {when}{start}."
         elif event.updated_at > event.created_at:
             kind = "event_updated"
             if not event.notify_on_change:
@@ -699,7 +750,7 @@ def notifications_for(db: Session, viewer: SignedInUser) -> list[NotificationOut
                 message = f"{event.title} has been updated."
         else:
             kind = "new_event"
-            message = f"New event: {event.title} on {event.event_date:%d %b}{start}. Check your Campus Calendar."
+            message = f"New event: {event.title} on {when}{start}. Check your calendar."
 
         changed_at = event.cancelled_at or event.updated_at
         out.append(
@@ -718,7 +769,7 @@ def notifications_for(db: Session, viewer: SignedInUser) -> list[NotificationOut
             NotificationOut(
                 notification_id=str(nudge.nudge_id),
                 event_id=str(nudge.item_id),
-                message=nudges.message_for(db, nudge),
+                message=nudges.message_for(db, nudge, zone),
                 created_at=nudge.sent_at or nudge.scheduled_at,
                 is_read=bool(nudge.seen_at),
                 kind=nudge.nudge_type,

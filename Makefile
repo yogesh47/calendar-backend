@@ -41,7 +41,7 @@ stop:
 # Stop the old server, then start a fresh one (http://127.0.0.1:8001).
 run: stop
 	@sleep 1
-	@PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port $(API_PORT) --reload
+	@PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port $(API_PORT) --reload --timeout-graceful-shutdown 3
 
 # This machine's address on the network, read fresh every time because DHCP changes it.
 LAN_IP = $(shell hostname -I | awk '{print $$1}')
@@ -54,4 +54,4 @@ run-local: stop
 	@echo "Frontend run: npm run dev:local"
 	@PYTHONPATH=. \
 		CORS_ORIGINS="http://localhost:5180,http://127.0.0.1:5180,http://$(LAN_IP):5180" \
-		.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $(API_PORT) --reload
+		.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $(API_PORT) --reload --timeout-graceful-shutdown 3

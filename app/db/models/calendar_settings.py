@@ -6,6 +6,14 @@ class CalendarSettings(Base):
     __tablename__ = "calendar_settings"
 
     settings_id = columns.primary_key()
+    # One row per org. A row without an org is the template new orgs start from.
+    org_id = columns.optional_id()
+    # The org's campus time — the zone its events are typed in. Orgs may share one.
+    time_zone = columns.text(64, nullable=False, default="Asia/Kolkata")
+    # How the zone was set: "default" (never), "detected" (the first staff
+    # browser to sign in) or "admin" (chosen in Settings). Only "default" is
+    # replaced automatically, so a travelling TPO never moves their campus.
+    time_zone_source = columns.text(20, nullable=False, default="default")
     event_reminder_days_before = columns.count(default=1)
     event_reminder_hours_before = columns.count(default=1)
     deadline_reminder_days_before = columns.count(default=2)

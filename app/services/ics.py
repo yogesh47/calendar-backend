@@ -8,10 +8,9 @@ made here and flow out.
 """
 
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models.calendar_model import EventOut
-from app.services.clock import ORG_TIMEZONE
 
 TAGS = re.compile(r"<[^>]+>")
 
@@ -26,9 +25,7 @@ def _plain(html: str | None) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
-def _utc(day: date, clock: str) -> str:
-    moment = datetime.combine(day, time.fromisoformat(clock), tzinfo=ORG_TIMEZONE)
-
+def _utc(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")  # noqa: UP017
 
 
@@ -53,11 +50,9 @@ def _fold(line: str) -> str:
 def _event(item: EventOut, stamp: str) -> list[str]:
     lines = ["BEGIN:VEVENT", f"UID:{item.event_id}@campus-calendar", f"DTSTAMP:{stamp}"]
 
-    if item.start_time:
-        end_day = item.end_date or item.event_date
-        end_clock = item.end_time or item.start_time
-        lines.append(f"DTSTART:{_utc(item.event_date, item.start_time)}")
-        lines.append(f"DTEND:{_utc(end_day, end_clock)}")
+    if item.starts_at:
+        lines.append(f"DTSTART:{_utc(item.starts_at)}")
+        lines.append(f"DTEND:{_utc(item.ends_at or item.starts_at)}")
     else:
         lines.append(f"DTSTART;VALUE=DATE:{item.event_date:%Y%m%d}")
         lines.append(f"DTEND;VALUE=DATE:{item.event_date + timedelta(days=1):%Y%m%d}")
