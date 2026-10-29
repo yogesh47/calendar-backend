@@ -21,5 +21,9 @@ class CalendarSettings(Base):
     daily_nudge_limit = columns.count(default=3)
     quiet_hours_start = columns.clock(nullable=False)
     quiet_hours_end = columns.clock(nullable=False)
+    # What the calendar-sync (.ics) feed carries: days back and ahead of today, and cancelled events.
+    feed_past_days = columns.count(default=30)
+    feed_future_days = columns.count(default=365)
+    feed_show_cancelled = columns.flag(default=True)
     updated_by = columns.optional_id()
     updated_at = columns.updated_at()

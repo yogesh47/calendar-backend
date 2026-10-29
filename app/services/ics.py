@@ -57,7 +57,9 @@ def _event(item: EventOut, stamp: str) -> list[str]:
         lines.append(f"DTSTART;VALUE=DATE:{item.event_date:%Y%m%d}")
         lines.append(f"DTEND;VALUE=DATE:{item.event_date + timedelta(days=1):%Y%m%d}")
 
-    lines.append(f"SUMMARY:{_escape(item.title)}")
+    # Google and Outlook show a subscribed event marked CANCELLED like any other, so the title says it too.
+    title = f"Cancelled: {item.title}" if item.status == "cancelled" else item.title
+    lines.append(f"SUMMARY:{_escape(title)}")
 
     where = item.venue if item.mode == "offline" else item.online_platform
     if where:
@@ -76,7 +78,20 @@ def _event(item: EventOut, stamp: str) -> list[str]:
     return lines
 
 
-def build(items: list[EventOut], name: str) -> str:
+def _wanted(item: EventOut, kinds: set[str]) -> bool:
+    if item.event_type == "my_reminder":
+        return "reminders" in kinds
+    if item.event_type == "deadline":
+        return "deadlines" in kinds
+    return "events" in kinds
+
+
+def build(
+    items: list[EventOut],
+    name: str,
+    show_cancelled: bool = True,
+    kinds: set[str] = frozenset({"events", "deadlines", "reminders"}),
+) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")  # noqa: UP017
     lines = [
         "BEGIN:VCALENDAR",
@@ -92,7 +107,10 @@ def build(items: list[EventOut], name: str) -> str:
     for item in items:
         # Nudges are alerts about other items, and an event that no longer
         # applies to the student should drop out of their calendar too.
-        if item.event_type == "nudge" or not item.applies_to_me:
+        if item.event_type == "nudge" or not item.applies_to_me or not _wanted(item, kinds):
+            continue
+        # "Created by mistake" is withdrawn for everyone, not just cancelled.
+        if item.status == "cancelled" and (item.cancel_reason == "created_by_mistake" or not show_cancelled):
             continue
         lines.extend(_event(item, stamp))
 

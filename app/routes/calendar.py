@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_role
 from app.auth.tokens import issue_feed_token, read_feed_token, read_token
 from app.auth.users import STUDENT, TPO, SignedInUser, find_by_id
+from app.conf import PUBLIC_API_URL
 from app.db.session import SessionLocal, get_db
 from app.exceptions import AuthenticationError, InvalidInputError, PermissionDeniedError
 from app.models.calendar_model import (
@@ -23,12 +24,22 @@ from app.models.calendar_model import (
     EventIn,
     EventOut,
     FeedLinkOut,
+    FeedSettingsIn,
+    FeedSettingsOut,
     ImageIn,
     ImageOut,
     NotificationOut,
     UnreadOut,
 )
-from app.services import calendar_service, ics, images, live_stream, push
+from app.services import (
+    calendar_service,
+    ics,
+    images,
+    live_stream,
+    push,
+    settings_service,
+)
+from app.services.clock import local_date
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -129,7 +140,26 @@ def read_image(name: str) -> FileResponse:
 # The signed-in user's personal subscription URL for Google Calendar / Outlook.
 @router.get("/feed/link")
 def feed_link(request: Request, user: Annotated[SignedInUser, Depends(calendar_user)]) -> FeedLinkOut:
-    return FeedLinkOut(url=f"{str(request.base_url).rstrip('/')}/calendar/feed.ics?token={issue_feed_token(user)}")
+    base = PUBLIC_API_URL or str(request.base_url).rstrip("/")
+    return FeedLinkOut(url=f"{base}/calendar/feed.ics?token={issue_feed_token(user)}")
+
+
+# What the signed-in user's calendar-sync feed carries.
+@router.get("/feed/settings")
+def read_feed_settings(
+    user: Annotated[SignedInUser, Depends(calendar_user)], db: Annotated[Session, Depends(get_db)]
+) -> FeedSettingsOut:
+    return settings_service.feed_settings(db, user)
+
+
+# Their own choices; an app already subscribed picks them up on its next refresh.
+@router.put("/feed/settings")
+def save_feed_settings(
+    payload: FeedSettingsIn,
+    user: Annotated[SignedInUser, Depends(calendar_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FeedSettingsOut:
+    return settings_service.save_feed_settings(db, user, payload)
 
 
 # The .ics feed itself. Calendar apps poll this; the token in the URL says whose it is.
@@ -140,7 +170,13 @@ def feed(token: str, db: Annotated[Session, Depends(get_db)]) -> Response:
     if not user or user.role not in (TPO, STUDENT):
         raise AuthenticationError("This calendar link is no longer valid")
 
-    body = ics.build(calendar_service.list_items(db, user), "Campus Calendar")
+    chosen = settings_service.feed_settings(db, user)
+    today = local_date(datetime.now(timezone.utc), calendar_service.viewer_zone(db, user))  # noqa: UP017
+    items = calendar_service.list_items(
+        db, user, today - timedelta(days=chosen.past_days), today + timedelta(days=chosen.future_days)
+    )
+    kinds = {kind for kind in ("events", "deadlines", "reminders") if getattr(chosen, kind)}
+    body = ics.build(items, "Campus Calendar", show_cancelled=chosen.cancelled, kinds=kinds)
 
     return Response(
         content=body,

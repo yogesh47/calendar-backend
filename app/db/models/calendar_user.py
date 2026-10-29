@@ -1,4 +1,4 @@
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, UniqueConstraint
 
 from app.db.models import columns
 from app.db.session import Base
@@ -25,5 +25,12 @@ class CalendarUser(Base):
     is_active = columns.flag(default=True)
     # Where the user is (their browser's zone); their nudges and messages read in it.
     time_zone = columns.text(64)
+    # Their own calendar-sync choices; empty means the college's default from Settings.
+    feed_past_days = Column(Integer, nullable=True)
+    feed_future_days = Column(Integer, nullable=True)
+    feed_events = Column(Boolean, nullable=True)
+    feed_deadlines = Column(Boolean, nullable=True)
+    feed_reminders = Column(Boolean, nullable=True)
+    feed_cancelled = Column(Boolean, nullable=True)
     created_at = columns.created_at()
     updated_at = columns.updated_at()

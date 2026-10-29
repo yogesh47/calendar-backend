@@ -176,6 +176,19 @@ class FeedLinkOut(BaseModel):
     url: str
 
 
+class FeedSettingsIn(BaseModel):
+    past_days: int = Field(ge=0, le=365)
+    future_days: int = Field(ge=7, le=730)
+    events: bool
+    deadlines: bool
+    reminders: bool
+    cancelled: bool
+
+
+class FeedSettingsOut(FeedSettingsIn):
+    pass
+
+
 class EventOut(BaseModel):
     event_id: str
     event_type: str

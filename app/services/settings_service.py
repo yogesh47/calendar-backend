@@ -6,7 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.users import SignedInUser
-from app.db.models import CalendarSettings
+from app.conf import FEED_FUTURE_DAYS, FEED_PAST_DAYS
+from app.db.models import CalendarSettings, CalendarUser
+from app.models.calendar_model import FeedSettingsIn, FeedSettingsOut
 from app.models.settings_model import SettingsIn, SettingsOut
 from app.services.clock import DEFAULT_ZONE
 
@@ -20,6 +22,9 @@ DEFAULTS = {
     "daily_nudge_limit": 3,
     "quiet_hours_start": time(22, 0),
     "quiet_hours_end": time(7, 0),
+    "feed_past_days": FEED_PAST_DAYS,
+    "feed_future_days": FEED_FUTURE_DAYS,
+    "feed_show_cancelled": True,
 }
 
 
@@ -34,6 +39,9 @@ def settings_out(row: CalendarSettings) -> SettingsOut:
         quiet_hours_end=row.quiet_hours_end.strftime("%H:%M"),
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         time_zone=row.time_zone,
+        feed_past_days=row.feed_past_days,
+        feed_future_days=row.feed_future_days,
+        feed_show_cancelled=row.feed_show_cancelled,
     )
 
 
@@ -108,6 +116,12 @@ def save_settings(db: Session, user: SignedInUser, payload: SettingsIn) -> Setti
         row.daily_nudge_limit = payload.daily_nudge_limit
         row.quiet_hours_start = payload.quiet_hours_start
         row.quiet_hours_end = payload.quiet_hours_end
+        if payload.feed_past_days is not None:
+            row.feed_past_days = payload.feed_past_days
+        if payload.feed_future_days is not None:
+            row.feed_future_days = payload.feed_future_days
+        if payload.feed_show_cancelled is not None:
+            row.feed_show_cancelled = payload.feed_show_cancelled
         row.updated_by = uuid.UUID(user.user_id)
         db.commit()
         db.refresh(row)
@@ -115,5 +129,51 @@ def save_settings(db: Session, user: SignedInUser, payload: SettingsIn) -> Setti
         return settings_out(row)
     except Exception as err:
         LOGGER.error("save_settings failed: %s", err)
+        db.rollback()
+        raise
+
+
+def feed_settings(db: Session, user: SignedInUser) -> FeedSettingsOut:
+    """What this user's calendar-sync feed carries: their own choices over the college's defaults."""
+    college = current_row(db, user.org_id)
+    row = db.get(CalendarUser, uuid.UUID(user.user_id))
+
+    def own(name: str, default):
+        value = getattr(row, name) if row else None
+        return default if value is None else value
+
+    return FeedSettingsOut(
+        past_days=own("feed_past_days", college.feed_past_days),
+        future_days=own("feed_future_days", college.feed_future_days),
+        events=own("feed_events", True),
+        deadlines=own("feed_deadlines", True),
+        reminders=own("feed_reminders", True),
+        cancelled=own("feed_cancelled", college.feed_show_cancelled),
+    )
+
+
+def save_feed_settings(db: Session, user: SignedInUser, payload: FeedSettingsIn) -> FeedSettingsOut:
+    """
+    Keeps only what differs from the college's default, so a choice the user
+    never changed still follows the college when an admin changes it.
+    """
+    try:
+        college = current_row(db, user.org_id)
+        row = db.get(CalendarUser, uuid.UUID(user.user_id))
+
+        def mine(value, default):
+            return None if value == default else value
+
+        row.feed_past_days = mine(payload.past_days, college.feed_past_days)
+        row.feed_future_days = mine(payload.future_days, college.feed_future_days)
+        row.feed_events = mine(payload.events, True)
+        row.feed_deadlines = mine(payload.deadlines, True)
+        row.feed_reminders = mine(payload.reminders, True)
+        row.feed_cancelled = mine(payload.cancelled, college.feed_show_cancelled)
+        db.commit()
+
+        return feed_settings(db, user)
+    except Exception as err:
+        LOGGER.error("save_feed_settings failed: %s", err)
         db.rollback()
         raise

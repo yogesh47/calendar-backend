@@ -21,6 +21,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+> Server (dev / stage / prod) par `.env` mein `PUBLIC_API_URL` bharna — jaise
+> `https://dev.7seers.ai` (koi path prefix ho to wo bhi). Calendar Sync ka link isi
+> se banta hai; Google aur Outlook apne server se ye link kholte hain, isliye
+> `127.0.0.1` ya proxy ka andar ka address unke liye bekaar hai. Local par khaali chhodo.
+
 ---
 
 ## 2. DB check karo

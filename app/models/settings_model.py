@@ -16,6 +16,10 @@ class SettingsIn(BaseModel):
     # The org's campus time, e.g. "Asia/Kolkata", "Australia/Sydney", "Europe/London".
     # Left out, the org keeps the zone it has.
     time_zone: str | None = None
+    # Calendar sync. Left out, each keeps its current value.
+    feed_past_days: int | None = Field(default=None, ge=0, le=365)
+    feed_future_days: int | None = Field(default=None, ge=7, le=730)
+    feed_show_cancelled: bool | None = None
 
     @model_validator(mode="after")
     def check_quiet_hours(self):
@@ -38,3 +42,6 @@ class SettingsOut(BaseModel):
     quiet_hours_end: str
     updated_at: str | None = None
     time_zone: str = "Asia/Kolkata"
+    feed_past_days: int = 30
+    feed_future_days: int = 365
+    feed_show_cancelled: bool = True
