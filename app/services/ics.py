@@ -1,7 +1,7 @@
 """
 The calendar as an iCalendar (.ics) feed.
 
-Google Calendar, Outlook and Apple Calendar all subscribe to a URL like this and
+Google Calendar and Outlook subscribe to a URL like this and
 re-read it on their own schedule, so the student's own calendar follows the
 campus one without an OAuth integration. It is read-only by design: changes are
 made here and flow out.

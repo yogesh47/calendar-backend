@@ -126,7 +126,7 @@ def read_image(name: str) -> FileResponse:
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
-# The signed-in user's personal subscription URL for Google / Outlook / Apple Calendar.
+# The signed-in user's personal subscription URL for Google Calendar / Outlook.
 @router.get("/feed/link")
 def feed_link(request: Request, user: Annotated[SignedInUser, Depends(calendar_user)]) -> FeedLinkOut:
     return FeedLinkOut(url=f"{str(request.base_url).rstrip('/')}/calendar/feed.ics?token={issue_feed_token(user)}")

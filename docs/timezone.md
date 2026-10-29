@@ -433,7 +433,7 @@ PUT /settings
 ## 10. Calendar sync (.ics)
 
 `GET /calendar/feed.ics?token=…` sends every timed event in **UTC** (`DTSTART:20261028T100000Z`),
-from `starts_at` / `ends_at`. Google / Outlook / Apple Calendar show it in the
+from `starts_at` / `ends_at`. Google Calendar / Outlook show it in the
 user's own zone. All-day items are sent with `VALUE=DATE`.
 
 ---
