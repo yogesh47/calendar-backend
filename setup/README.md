@@ -57,8 +57,13 @@ DB CONNECTION FAILED
 make db-up
 ```
 
-Ye database banata hai, `initial setup` migration se saari tables banata hai,
-aur settings ki ek default row daalta hai.
+Ye database banata hai, saari Alembic migrations (`initial setup` se head
+`a1c4e7f2b905` tak) chala kar tables/columns banata hai, aur settings ki ek
+default row daalta hai.
+
+> DB pehle se hai par code pull kiya jisme nayi migration hai (jaise
+> `a1c4e7f2b905_other_event_type_name` — `calendar_event.other_type`)? Tab bhi
+> bas `make db-up` — sirf pending migrations chalti hain, data waisa hi rehta hai.
 
 Sab kuch mitana ho:
 
@@ -106,7 +111,7 @@ Agli baar bas `make db-start` → `make run`.
 | `make db-start` | container chalu |
 | `make db-stop` | container band |
 | `make db-check` | DB judta hai ya nahi, kitni tables hain |
-| `make db-up` | database + tables + settings row |
+| `make db-up` | database + pending migrations + settings row (pull ke baad bhi chalao) |
 | `make db-drop` | database delete |
 | `make run` | API chalu (port 8001; purana server pehle band ho jaata hai) |
 | `make db-revision m="..."` | nayi migration — [`migrations.md`](migrations.md) |

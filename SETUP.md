@@ -36,9 +36,12 @@ pip install -r requirements.txt
 cp .env.example .env
 
 make db-check                      # DB hai ya nahi
-make db-up                         # na ho to bana lo
+make db-up                         # na ho to bana lo; ho to pending migrations chala do
 make run                           # API chalu
 ```
+
+> Code pull kiya? Pehle `make db-up` — nayi migration ho sakti hai (abhi ki
+> aakhri: `a1c4e7f2b905` — `calendar_event.other_type`). Bina iske API DB error degi.
 
 Check: `curl http://127.0.0.1:8001/health` → `{"status":"ok","database":"up"}`
 

@@ -23,7 +23,7 @@ docs/
 
 | # | Hissa | Haal |
 |---|---|---|
-| 1 | Postgres + Alembic migration (`initial setup`) | ✅ |
+| 1 | Postgres + Alembic migrations (`initial setup` → head `a1c4e7f2b905` `other_type`) — pull ke baad `make db-up` | ✅ |
 | 2 | Chaar hardcoded user (2 TPO, student, super admin) + JWT login | ✅ |
 | 3 | Calendar API — events, reminders, deadlines, notifications, SSE | ✅ |
 | 4 | Super Admin settings (FR-CAL-27) | ✅ |

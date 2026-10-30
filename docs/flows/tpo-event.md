@@ -26,26 +26,39 @@ milte hain. Doosre TPO ko ye line dikhti hai:
 
 ### TPO ko kya dikhta hai
 
-Ek hi drawer right side se khulta hai. **Event Type** chunte hi baaki form badal
-jaata hai:
+Create do kadam me hota hai (app ke apne modal, calendar package sirf grid
+dikhata hai):
+
+1. **Pehla step (generic)** — `EventEntryDialog`: title, date/time, repeat,
+   remind, description/note. Yahan event type **nahi** poochha jaata.
+2. **Next** → **doosra step** — `PublishEventDialog`: **Event Type** (My Reminder
+   bhi isi list me), company, venue/mode, audience, image, linked job. Back
+   dabao to pehla step bhara hua milta hai.
+
+Doosre step me **Event Type** chunte hi baaki form badal jaata hai:
 
 | Type chuna | Form me kya aata hai |
 |---|---|
 | PPT, Company Visit, Training, Orientation, Practice Test, Other | Start Time, End Time, Mode, Venue ya Platform — sab zaroori |
+| Other | upar wala sab + **event type ka naam** (jaise "Alumni Meet", max 80) — zaroori; khaali chhoda to backend 422 "Specify the event type" (field `other_type`) |
 | Online Assessment | Start Time, End Time (test ki window). Mode aur Venue **nahi** poochhte |
 | Deadline | sirf Date. Time, Mode, Venue kuch nahi — "All-day item" likha aata hai |
 | My Reminder | Date, time marzi, note. Audience nahi poochhte |
 
 ```
-Event Type *   [ Pre-Placement Talk ▾ ]
+— pehla step —
 Event Title *  [ Deloitte Pre-Placement Talk ]      max 120
-Company        [ Deloitte ▾ ]                       optional
 Date *         [ 2 Oct 25 ]                         aaj ya aage ka
 Start Time *   [ 10:00 AM ]
 End Time *     [ 12:00 PM ]                         start ke baad hona chahiye
+Description    [ ... ]                              optional, max 1000
+                                        [ Next → ]
+— doosra step —
+Event Type *   [ Pre-Placement Talk ▾ ]             ("Other" → naam bhi, max 80)
+Company        [ Deloitte ▾ ]                       optional
 Mode *         (•) Offline   ( ) Online
 Venue *        [ Auditorium A ]                     max 200
-Description    [ ... ]                              optional, max 1000
+                                   [ ← Back ]  [ Publish ]
 ```
 
 Company chunte hi ek hint aati hai — "Existing Deloitte events: Online
@@ -127,9 +140,16 @@ Poore din ka event alag se chunne ka option **nahi** hai. Poora din hai to TPO
 ### Kaun aur kab
 
 Sirf banane wala TPO. Aur sirf tab tak jab tak event ka end time nahi nikal
-jaata.
+jaata. Cancelled event edit nahi hota (403).
 
-**Event Type kabhi nahi badal sakta.** Baaki sab badal sakta hai.
+Edit bhi dono step se guzarta hai: event kholo → **Edit Event** (pehla step) →
+**Next** → doosra step (title "Edit Event", button "Save Changes"). My Reminder
+ka edit ek hi step hai.
+
+**Event Type badal sakta hai** — ek event type se doosre me (pending nudges naye
+type ke hisaab se dobara bante hain). Bas event ko **My Reminder nahi** bana sakte:
+backend 403 "An event cannot be changed into a reminder" deta hai, aur edit ke
+doosre step me My Reminder ka option hota hi nahi. Baaki sab badal sakta hai.
 
 ### Do tarah ke badlav
 
@@ -137,6 +157,13 @@ jaata.
 |---|---|
 | Date, Start Time, End Time, Mode, Venue ya Platform, Audience | **hamesha jaata hai** |
 | Title, Description, Company | ek checkbox aata hai — "Notify students about this change". TPO tick kare tabhi jaata hai |
+
+Frontend `notify_on_change = !onlyMinorChanged || ticked` bhejta hai. Backend par:
+
+| `notify_on_change` | Jisne pehle notification padh li thi | Jisne nahi padhi thi | Message |
+|---|---|---|---|
+| `true` | phir se **unread** | unread | "[Title] has been updated: [kya badla]." |
+| `false` (sirf minor badlav, box khaali) | **read hi rehti hai** (`seen_at` aage badh jaata hai) | unread hi rehti hai | "[Title] details have been updated." |
 
 ### Audience badalne par
 
@@ -220,15 +247,17 @@ Teen pakki baatein:
 
 ## 5. TPO ka apna reminder
 
-Wahi drawer, Event Type me **My Reminder**.
+Wahi do-step create: pehla step → Next → doosre step me Event Type **My Reminder**.
 
 ```
-Event Type *   [ My Reminder ▾ ]
+— pehla step —
 Title *        [ Call Deloitte HR ]       max 120
 Date *         [ 1 Oct 25 ]
 Time           [ 11:00 AM ]               optional
 Remind me      [ 1 hour before ▾ ]
 Note           [ ... ]                    optional, max 500
+— doosra step —
+Event Type *   [ My Reminder ▾ ]
 ```
 
 Audience, mode, venue kuch nahi poochha jaata. Ye **sirf TPO ko** dikhta hai,
@@ -246,11 +275,11 @@ DB me ye `calendar_reminder` table me jaata hai, `calendar_event` me nahi.
 | Cheez | Kyun |
 |---|---|
 | Doosre TPO ka event edit ya cancel | sirf banane wala kar sakta hai |
-| Event Type badalna | publish ke baad lock ho jaata hai |
+| Event ko My Reminder me badalna | reminder alag table me rehta hai — 403 "An event cannot be changed into a reminder" |
 | Ek-ek student jodna ya hatana | audience sirf course, batch, department se banti hai |
 | Section se target karna | BRD me section ka option hai hi nahi |
 | Cancel ki hui event wapas lana | nayi banani padegi |
-| Event permanently delete karna | record ke liye row rehti hai |
+| Live event permanently delete karna (UI se) | UI Delete sirf cancelled event par deta hai. API (`DELETE /calendar/events/{id}`) owner ko live event bhi delete karne deti hai — sirf owner check hai |
 | Purana event edit karna | end time nikal gaya to edit band |
 | Job ki application deadline banani ya hatani | wo apne aap jobs se aati hai |
 
@@ -259,9 +288,9 @@ DB me ye `calendar_reminder` table me jaata hai, `calendar_event` me nahi.
 ## 7. Ek nazar me — poora rasta
 
 ```
-TPO drawer kholta hai
+TPO New Event dabata hai  →  pehla step (title, date/time, …)
         ↓
-type chunta hai  →  form uske hisaab se badalta hai
+Next  →  doosra step: type chunta hai  →  form uske hisaab se badalta hai
         ↓
 audience chunta hai  →  "120 students will be notified"
         ↓

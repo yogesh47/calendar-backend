@@ -127,6 +127,12 @@ Date badal jaaye to? Event update hone par us event ke **saare pending** nudges
 delete karke nayi date par dobara bante hain (`schedule_for_event()` ka pehla kaam
 `_drop_scheduled()` hai). `sent` wale history ki tarah bache rehte hain.
 
+Type badal jaaye to? Edit par event ek type se doosre me ja sakta hai (sirf
+`my_reminder` me nahi — wo 403). Wahi `schedule_for_event()` naye type se nudges
+banata hai — jaise `training` → `online_assessment` par `assessment_day` (8:00 AM)
+jud jaata hai, ulta karne par hat jaata hai; deadline (bina time) par
+`event_day_before` / `event_hour_before` nahi bante.
+
 ---
 
 ## 6. Background loop

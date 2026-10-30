@@ -209,9 +209,10 @@ docker exec campus-calendar-db psql -U calendar -d campus_calendar \
 
 ## Migrations ke baare me
 
-Abhi `create_all` chal raha hai, jo POC ke liye theek hai. Jaise hi schema
-badalna shuru ho, **Alembic** laga lena — `create_all` purani table ko badalta
-nahi, sirf nayi banata hai.
+Schema **Alembic** sambhalta hai (`setup/migrations/versions/`), `create_all` nahi.
+Aakhri (head) migration `a1c4e7f2b905_other_event_type_name` hai —
+`calendar_event.other_type` jodti hai (`b8f6d0e2a475` ke baad). Pull ke baad
+`make db-up` chalao. Poori zanjeer [`../setup/migrations.md`](../setup/migrations.md) me.
 
 ---
 
@@ -236,12 +237,12 @@ class CalendarEvent(Base):
     ...
 ```
 
-### 24 column, 8 sawaal
+### 32 column, 8 sawaal
 
 | Sawaal | Columns |
 |---|---|
 | Ye row hai kiski | `event_id`, `org_id` |
-| Hai kya | `event_type`, `title`, `company_id` |
+| Hai kya | `event_type`, `other_type`, `title`, `company_id` |
 | Kab hai | `event_date`, `start_at`, `end_at` |
 | Kahan hai | `mode`, `venue`, `online_platform` |
 | Kis job se juda hai | `linked_job_*` (4) |
@@ -264,7 +265,8 @@ class CalendarEvent(Base):
 
 | Column | Code | Kyun |
 |---|---|---|
-| `event_type` | `text(40, nullable=False)` | BRD ke Event Types wale hisse me 9 type gine hain (BRD, line 230). Publish ke baad **badalta nahi** (BRD, line 201) |
+| `event_type` | `text(40, nullable=False)` | BRD ke Event Types wale hisse me 9 type gine hain (BRD, line 230). Edit par ek event type se doosre me badal sakta hai (nudges dobara schedule hote hain), par **`my_reminder` me nahi** — `update_event` 403 deta hai, kyunki reminder alag table (`calendar_reminder`) me rehta hai |
+| `other_type` | `text(80)` | Sirf `event_type = "other"` par bharta hai — TPO ka apna naam ("Alumni Meet"), taaki student ko sirf "Other" na dikhe. `EventIn` me `other` par zaroori (khaali → 422 "Specify the event type"), baaki har type par `None` — type badalne par purana naam nahi bachta. Migration `a1c4e7f2b905_other_event_type_name` |
 | `title` | `text(120, nullable=False)` | Max 120 — BRD ka hi number (BRD, line 202) |
 | `company_id` | `columns.optional_id()` | BRD ke Create Event wale hisse me Company optional hai, kyunki orientation/training kisi company se nahi jude hote (BRD, line 203) |
 

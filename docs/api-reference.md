@@ -33,7 +33,7 @@ Email + password se JWT. **Har client yahin se shuru karta hai.**
 { "access_token": "eyJ…", "token_type": "bearer", "expires_in": 43200,
   "user": { "user_id": "…", "org_id": "…", "name": "Priya Sharma", "email": "…", "role": "tpo" } }
 ```
-Galat password → **401** `{"detail": "Email or password is incorrect"}`.
+Galat password → **401** `{"message": "Email or password is incorrect", "code": …}`.
 
 ### `GET /auth/me`
 Token kiska hai — app ke restart par session check karne ke liye.
@@ -63,7 +63,7 @@ Query (dono optional, mobile month view ke liye):
 curl "$API/calendar/events?from_date=2026-10-01&to_date=2026-10-31" -H "Authorization: Bearer $TOKEN"
 ```
 
-Har item me kaam ke field: `event_id`, `event_type`, `title`, `company`,
+Har item me kaam ke field: `event_id`, `event_type`, `other_type`, `title`, `company`,
 `event_date`, `end_date`, `start_time`, `end_time`, `mode`, `venue`,
 `online_platform`, `description`, `note`, `status`, `cancel_reason`,
 `cancel_note`, `cancelled_at`, `created_by_name`, `notified_count`, `audience`,
@@ -113,12 +113,39 @@ Peeche kya hota hai: audience row banti hai → matching students ki recipient r
 → unke nudges schedule hote hain → SSE push. Pura silsila
 [`flows/create-event.md`](flows/create-event.md) me hai.
 
-Validation fail → **422** aur hamesha ek line ka message:
-`{"detail": "Venue is required for an offline event"}`.
+`event_type: "other"` ho to **`other_type`** (TPO ka apna naam, jaise
+"Alumni Meet", max 80 char) zaroori hai — khaali/sirf spaces → **422**
+`"Specify the event type"` (field `other_type`, label "Event type name").
+Kisi aur type par `other_type` chupchaap `null` ho jaata hai (type badalne par
+purana naam nahi bachta). Response (`EventOut`) me bhi `other_type` aata hai.
+
+Validation fail → **422** aur hamesha ek line ka message, saath me galat field:
+`{"message": "Venue is required for an offline event", "code": "validation_error", "field": "venue", "errors": [...]}`.
 
 ### `PUT /calendar/events/{event_id}`
-Event ya apna reminder badalna. Body `POST` jaisi hi.
-Dusre TPO ka event → **403**, dusre ka reminder → **403**, mila hi nahi → **404**.
+Event ya apna reminder badalna. Body `POST` jaisi hi, plus teen optional field:
+`change_summary` (max 300), `change_reason` (max 200), `notify_on_change` (default `true`).
+Dusre TPO ka event → **403**, dusre ka reminder → **403**, cancelled event → **403**,
+mila hi nahi → **404**.
+
+Event ka type badal sakte ho (jaise `ppt` → `training`, ya `other` me naye
+`other_type` ke saath) — nudges naye type ke hisaab se dobara schedule hote hain.
+Par event ko **`my_reminder` me nahi** badal sakte → **403**
+`"An event cannot be changed into a reminder"` (reminder alag table me rehta hai,
+owner ke saath, audience ke bina).
+
+**`notify_on_change`** — TPO ne "Notify students about this change" chhoda
+(`false`, sirf chhote field badle: title, description, company):
+- jin students ne notification pehle hi padh li thi, unke liye wo **read** hi
+  rehti hai (`seen_at` aage badh jaata hai); message hota hai
+  `"<title> details have been updated."`
+- jinhone nahi padhi thi, unke liye wo unread hi dikhti hai.
+
+`true` par sab ke liye phir se **unread**, message
+`"<title> has been updated: <change_summary>."` (summary na ho to
+`"<title> has been updated."`). Frontend `notify_on_change = !onlyMinorChanged || ticked`
+bhejta hai.
+
 Pending nudges nayi date par dobara schedule ho jaate hain.
 
 ### `POST /calendar/events/{event_id}/cancel`
@@ -144,11 +171,15 @@ nahi.
 
 | API | Kya karta hai |
 |---|---|
-| `DELETE /calendar/events/{id}` → **204** | apna reminder, ya apna banaya event hamesha ke liye hata deta hai (uske nudges bhi) |
+| `DELETE /calendar/events/{id}` → **204** | apna reminder, ya apna banaya event hamesha ke liye hata deta hai (uske nudges bhi). Repeating reminder par `?scope=series` = ye date aur aage ki saari |
 | `POST /calendar/events/bulk-delete` | `{ "event_ids": [...] }` → `{ deleted, skipped, count }` — jo apne nahi wo `skipped` me |
 | `DELETE /calendar/events?confirm=yes` | dev wala "Delete all": org ke saare events + **apne** reminders. `confirm=yes` na ho to **400** |
 
 > `delete all` doosre user ke niji reminders ko haath nahi lagata.
+
+> Dhyan do: route ka comment kehta hai "reminder ya cancelled event", par code
+> (`delete_item`) sirf owner check karta hai — owner TPO **live (cancel nahi hua)**
+> event bhi delete kar sakta hai. UI ye button sirf cancelled event par dikhata hai.
 
 ---
 
@@ -245,7 +276,7 @@ Poore platform ki ek hi row (FR-CAL-27). Sirf `super_admin`; TPO/student ko **40
   "quiet_hours_start": "22:00",
   "quiet_hours_end": "07:00" }
 ```
-Range se bahar → **422** `{"detail": "Event Reminder: days before must be 30 or less"}`.
+Range se bahar → **422** `{"message": "Event Reminder: days before must be 30 or less", …}`.
 Nudge engine har tick par yahi row padhta hai; pehle se schedule nudges nahi badalte.
 
 ---
@@ -257,13 +288,13 @@ Nudge engine har tick par yahi row padhta hai; pehle se schedule nudges nahi bad
 | 200 / 201 / 204 | theek · bana · bina content ke ho gaya |
 | **400** | `?confirm=yes` ke bina delete-all |
 | **401** | token nahi / expire ho gaya |
-| **403** | galat role (student event banaye, TPO settings khole, doosre ka event edit/cancel/delete) |
+| **403** | galat role (student event banaye, TPO settings khole, doosre ka event edit/cancel/delete, event ko `my_reminder` me badalna, cancelled event edit) |
 | **404** | event ya reminder mila hi nahi |
-| **422** | body galat — `detail` me hamesha **ek line** ka seedha message |
-| **500** | `{"detail": "The server could not complete that request. Please try again."}` |
+| **422** | body galat — `message` me hamesha **ek line** ka seedha message, `field` me kaunsa box |
+| **500** | `{"message": "The server could not complete that request. Please try again.", "code": …}` |
 
-Error ka wording `app/errors.py` banata hai, isliye frontend seedha `detail`
-uthakar toast me dikha deta hai.
+Error ka wording `app/errors.py` banata hai (body: `message`, `code`, aur 422 par
+`field` + `errors`), isliye frontend seedha `message` uthakar toast me dikha deta hai.
 
 ---
 

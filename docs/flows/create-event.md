@@ -1,6 +1,8 @@
 # Create Event — line by line, frontend se DB tak
 
-Ye file ek hi sawaal ka jawab hai: **TPO "Publish Event" dabata hai, uske baad
+Ye file ek hi sawaal ka jawab hai: **TPO "Publish Event" dabata hai** (frontend me
+do kadam: pehla generic step — title, date/time, repeat, remind, description →
+**Next** → doosra step jahan event type chuna jaata hai, phir Publish), **uske baad
 backend me exactly kya-kya chalta hai.** Har function, uske parameter, wo kya
 karta hai, aur aage kise bulata hai — usi order me.
 
@@ -43,6 +45,9 @@ Content-Type: application/json
 Time **IST** me jaata hai (`"14:00"`), date `YYYY-MM-DD`. UTC me badalna backend
 ka kaam hai (step 4).
 
+`event_type: "other"` ho to payload me `"other_type": "Alumni Meet"` bhi jaata hai
+(TPO ka apna naam, max 80); baaki type par ye field `null` / nahi bhejte.
+
 ---
 
 ## 1. FastAPI route — `app/routes/calendar.py:44`
@@ -64,31 +69,36 @@ Teen parameter, teenon alag jagah se aate hain:
 | `user` | `calendar_user` dependency (`routes/calendar.py:24` → `auth/deps.py:27`) | Bearer token padha, `read_token()` se claims, `find_by_id()` se user; role TPO/student na ho to 403 |
 | `db` | `app/db/session.py:17` `get_db()` | ek SQLAlchemy session, response ke baad band |
 
-### 1a. `EventIn` validation — `app/models/calendar_model.py:38`
+### 1a. `EventIn` validation — `app/models/calendar_model.py:54`
 
 Field-level rules pehle: `title` 1–120 char, `venue` ≤200, `description` ≤1000,
 `mode` sirf `offline`/`online`, date/time ka format.
 
-Phir `@model_validator(mode="after") check_by_type()` (line 59) — **event type ke
+Phir `@model_validator(mode="after") check_by_type()` (line 84) — **event type ke
 hisaab se**:
 
 * type list me hai? warna `"Unknown event type"`
+* `other` hai to `other_type` (strip karke) khaali nahi hona chahiye, warna
+  `"Specify the event type"` (field `other_type`, label "Event type name"; max 80
+  ka field rule alag). Kisi aur type par `other_type = None` kar diya jaata hai
 * timed type (ppt, company_visit, …) hai to `start_time`/`end_time` zaroori, aur
   end > start (cross-midnight ke liye `end_date` ko jod kar dekha jaata hai)
 * mode wale type me `mode` zaroori; offline → `venue`, online → `online_platform`
 * reminder chhod kar sab me audience ke teenon (course, batch, department) zaroori
 * external linked job me `https://` wala url aur title zaroori
 
-Koi bhi rule toote → FastAPI `RequestValidationError` → `app/errors.py:51` ka
+Koi bhi rule toote → FastAPI `RequestValidationError` → `app/errors.py:171` ka
 handler ek **padhne-layak line** bana kar 422 bhejta hai
-(`{"detail": "Venue is required for an offline event"}`) → frontend uska toast
+(`{"message": "Venue is required for an offline event", "code": "validation_error", "field": "venue", ...}`;
+model-level message ka field `MODEL_FIELD_HINTS` se milta hai, jaise
+"Specify the event type" → `other_type`) → frontend us box ko highlight karke toast
 dikhata hai.
 
-### 1b. Role guard — `routes/calendar.py:49`
+### 1b. Role guard — `routes/calendar.py:85`
 
 ```python
 if payload.event_type != "my_reminder" and user.role != TPO:
-    raise HTTPException(403, "Only a TPO can create events")
+    raise PermissionDeniedError("Only a TPO can create events")
 ```
 
 Student sirf apna `my_reminder` bana sakta hai; baaki har type TPO ka.
@@ -139,7 +149,8 @@ db.flush()                         # ← commit nahi; sirf event_id (PK) mil jaa
 
 ## 3. `apply_payload(event, payload)` — line 258
 
-Payload ke field ko DB column par rakhta hai. Do line khaas hain:
+Payload ke field ko DB column par rakhta hai (`event.other_type = payload.other_type`
+bhi — validator ke baad wo sirf `other` par bhara hota hai, warna `None`). Do line khaas hain:
 
 ```python
 event.company_id = company_id_of(payload.company)                        # → 3a
@@ -288,9 +299,9 @@ list refresh karta hai aur toast dikhata hai:
 ```
 POST /calendar/events
 └── routes/calendar.py:44  create_event(payload, user, db)
-    ├── EventIn validation           models/calendar_model.py:38 → check_by_type():59
-    │   └── fail → errors.py:51 → 422 {"detail": "<ek line>"}
-    ├── role guard (TPO?)            routes/calendar.py:49
+    ├── EventIn validation           models/calendar_model.py:54 → check_by_type():84
+    │   └── fail → errors.py:171 → 422 {"message": "<ek line>", "field": …}
+    ├── role guard (TPO?)            routes/calendar.py:85
     ├── services/calendar_service.py:278  create_event(db, user, payload)
     │   ├── my_reminder?  → CalendarReminder + commit → reminder_out()  [khatam]
     │   ├── CalendarEvent(org_id, created_by)

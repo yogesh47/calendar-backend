@@ -54,9 +54,3 @@ def forget(db: Session, user: SignedInUser, token: str) -> None:
         LOGGER.error("forget failed: %s", err)
         db.rollback()
         raise
-
-
-def devices_for(db: Session, user_id: str) -> list[CalendarPushDevice]:
-    return list(
-        db.scalars(select(CalendarPushDevice).where(CalendarPushDevice.user_id == uuid.UUID(user_id)))
-    )

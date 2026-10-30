@@ -307,7 +307,9 @@ When the item's zone differs from the viewer's, the panel shows an extra row:
 | Event | **Campus time** — `Wed 9:00 PM · Sydney time (GMT+11)` |
 | Reminder | **Set for** — the zone the reminder was created in |
 
-When the zones match, the row is hidden. Code: `helpers/tpo.ts` → `timeThere()`.
+When the zones match, the row is hidden. The row lives in the app's own event view
+modal (the calendar package draws no panel): `calendar-frontend/src/modules/Calendar/pages/CalendarPage`
+→ `eventDetails`, which calls `helpers/tpo.ts` → `timeThere()`.
 
 > Chrome does not know the short name of some zones (Sydney → `GMT+11`, not
 > `AEDT`), so the city name is shown alongside.
@@ -478,7 +480,9 @@ The host app has to:
    date + `HH:mm` for the draft; keep `time_zone` in `draft.timeZone`.
 3. **Calendar → API:** the draft's local date and time → instant → the item zone's clock;
    send `time_zone` with it. New event = org zone, new reminder = browser zone.
-4. Optionally, add a "Campus time" row to the panel (via the `renderEventDetails` slot).
+4. Optionally, add a "Campus time" row to the app's own event view modal — the calendar
+   package has no panel or slot for it; here it is `CalendarPage` → `eventDetails`
+   using `helpers/tpo.ts` → `timeThere()`.
 
 Helpers: `src/lib/timeZone.ts` — `browserZone()`, `canonicalZone(zone)`, `wallClockIn(date, zone)`,
 `instantIn(day, time, zone)`, `zoneLabel(date, zone)`, `allZones()`.
@@ -498,7 +502,7 @@ Helpers: `src/lib/timeZone.ts` — `browserZone()`, `canonicalZone(zone)`, `wall
 | Browser zone helpers | `calendar-frontend/src/lib/timeZone.ts` |
 | Zone sync at sign-in | `calendar-frontend/src/modules/Auth/services/index.ts`, `hooks/index.ts` |
 | API ↔ local conversion | `calendar-frontend/src/modules/Calendar/services/api.ts` |
-| "Campus time" row | `calendar-frontend/src/modules/Calendar/helpers/tpo.ts` (`timeThere`) |
+| "Campus time" row | `calendar-frontend/src/modules/Calendar/pages/CalendarPage/index.tsx` (`eventDetails`) + `helpers/tpo.ts` (`timeThere`) |
 | Settings picker | `calendar-frontend/src/modules/Settings/pages/SettingsPage/index.tsx` |
 
 ---
@@ -516,6 +520,7 @@ Helpers: `src/lib/timeZone.ts` — `browserZone()`, `canonicalZone(zone)`, `wall
 | Worldwide — browser | 16 student zones × 2 campuses (Kolkata, Sydney): correct local time, "Campus time" row shown only when the offset differs; TPOs in Kathmandu, Honolulu, Lagos and Auckland (late at night) create events for a Sydney campus via the UI | 116/116 |
 | Fresh database via `make db-drop` / `make db-up` | All migrations applied; template row `Asia/Kolkata` / `default`; users `null`; first TPO sign-in from Chrome in India sets the college to `Asia/Kolkata`; student sign-in does not | Pass |
 | Existing user (zone `null`) | With the college on IST and on Sydney: test-day nudge at 8:00, "1 hour before" at 14:00, notification and new reminder — all on the college's zone | 10/10 |
+| Browser — IST / London / New York (after the calendar package went headless) | DB keeps UTC; events stored in the campus zone `Asia/Kolkata`; each viewer sees their own zone, plus the "Campus time" row in the app's event view modal when it differs; reminders in the user's zone; notifications in the viewer's zone (e.g. "05:00 EDT") | 12/12 |
 
 ### Bugs found by these tests (fixed)
 

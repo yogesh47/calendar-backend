@@ -4,8 +4,6 @@ from datetime import date, timedelta
 from app.conf import RECURRENCE_MAX_OCCURRENCES
 from app.models.calendar_model import RecurrenceIn
 
-FREQ_LABEL = {"daily": "day", "weekly": "week", "monthly": "month"}
-
 
 def _add_months(day: date, months: int) -> date:
     index = day.month - 1 + months

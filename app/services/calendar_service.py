@@ -547,6 +547,21 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
         if payload.audience:
             _set_audience(db, event, payload.audience)
 
+        # A change the TPO chose not to announce ("Notify students about this
+        # change" left off, minor fields only): whoever had already read the
+        # notification keeps it read — the event is updated, but it is not news.
+        # Students who had not read it yet still see it as unread.
+        if not payload.notify_on_change:
+            db.flush()
+            seen_at = _now()
+            for row in db.scalars(
+                select(CalendarEventRecipient).where(
+                    CalendarEventRecipient.event_id == event.event_id,
+                    CalendarEventRecipient.seen_at.is_not(None),
+                )
+            ):
+                row.seen_at = seen_at
+
         nudges.schedule_for_event(db, event)
         db.commit()
         db.refresh(event)

@@ -60,12 +60,6 @@ def row_by_email(db: Session, email: str) -> CalendarUser | None:
     ).first()
 
 
-def find_by_email(db: Session, email: str) -> SignedInUser | None:
-    row = row_by_email(db, email)
-
-    return to_user(row) if row else None
-
-
 def find_by_id(db: Session, user_id: str) -> SignedInUser | None:
     try:
         key = uuid.UUID(str(user_id))

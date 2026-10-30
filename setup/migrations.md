@@ -31,7 +31,15 @@ setup/
     └── versions/                 har migration ek file
         ├── 8e5c071131a6_initial_setup.py
         ├── 188f4317264a_calendar_user_table.py
-        └── 9c1a7d4e2b30_uuid_primary_key_defaults.py
+        ├── 9c1a7d4e2b30_uuid_primary_key_defaults.py
+        ├── b7e2f0c4a913_recurrence_and_image.py
+        ├── c3a91d5e7f20_reminder_recurrence.py
+        ├── d4b2e6f8a031_time_zones.py
+        ├── e5c3f7a9b142_time_zone_source.py
+        ├── f6d4a8b0c253_current_zone_names.py
+        ├── a7e5c9d1f364_feed_settings.py
+        ├── b8f6d0e2a475_user_feed_settings.py
+        └── a1c4e7f2b905_other_event_type_name.py
 ```
 
 `env.py` do cheezein deta hai: `app.conf` se **DATABASE_URL**, aur
@@ -48,8 +56,20 @@ Har file apne se pehli wali ka naam rakhti hai:
 ```
 <base> → 8e5c071131a6   initial setup — saari tables
          188f4317264a   calendar_user table
-         9c1a7d4e2b30   uuid primary key defaults        ← head
+         9c1a7d4e2b30   uuid primary key defaults
+         b7e2f0c4a913   recurring events + image per event
+         c3a91d5e7f20   repeating reminders
+         d4b2e6f8a031   time zones (org, user, event, reminder)
+         e5c3f7a9b142   org ka time zone kaise set hua
+         f6d4a8b0c253   current zone names
+         a7e5c9d1f364   calendar-sync feed settings (org)
+         b8f6d0e2a475   user ki apni feed settings
+         a1c4e7f2b905   calendar_event.other_type ("Other" event ka naam) ← head
 ```
+
+> Code me naya migration aaya ho (jaise `a1c4e7f2b905` — `other_type` column),
+> to pull ke baad **`make db-up`** chala do. Iske bina API `other_type` column
+> dhoondhegi aur event padhte/banate waqt DB error aayega.
 
 - **head** = aakhri migration
 - Database khud yaad rakhta hai wo kis revision par hai (`alembic_version` table me)
