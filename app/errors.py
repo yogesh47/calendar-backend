@@ -25,6 +25,7 @@ SERVER_ERROR = "The server could not complete that request. Please try again."
 FIELD_NAMES = {
     "title": "Title",
     "event_type": "Event type",
+    "other_type": "Event type name",
     "company": "Company",
     "event_date": "Start date",
     "end_date": "End date",
@@ -59,6 +60,7 @@ FIELD_NAMES = {
 # A model-level rule reports the whole model, so the field is read back from the message.
 MODEL_FIELD_HINTS = (
     ("Unknown event type", "event_type"),
+    ("Specify the event type", "other_type"),
     ("Start and end time are required", "start_time"),
     ("End must be after the start", "end_time"),
     ("Mode is required", "mode"),

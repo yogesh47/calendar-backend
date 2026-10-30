@@ -15,6 +15,8 @@ class CalendarEvent(Base):
     event_id = columns.primary_key()
     org_id = columns.required_id(index=True)
     event_type = columns.text(40, nullable=False)
+    # The TPO's own name for an "other" event; empty for every other type.
+    other_type = columns.text(80)
     title = columns.text(120, nullable=False)
     company_id = columns.optional_id()
     event_date = columns.day()

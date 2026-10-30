@@ -112,6 +112,7 @@ def event_out(db: Session, event: CalendarEvent, viewer: SignedInUser) -> EventO
     return EventOut(
         event_id=str(event.event_id),
         event_type=event.event_type,
+        other_type=event.other_type,
         title=event.title,
         company=company_name_of(event.company_id),
         event_date=event.event_date,
@@ -349,6 +350,7 @@ def apply_change_notes(event: CalendarEvent, payload: EventIn) -> None:
 
 def apply_payload(event: CalendarEvent, payload: EventIn, zone: str) -> None:
     event.event_type = payload.event_type
+    event.other_type = payload.other_type
     event.title = payload.title
     event.company_id = company_id_of(payload.company)
     event.event_date = payload.event_date
@@ -532,6 +534,11 @@ def update_event(db: Session, user: SignedInUser, event_id: str, payload: EventI
 
         if event.status == "cancelled":
             raise PermissionDeniedError("A cancelled event cannot be edited")
+
+        # An event may become another kind of event, never a reminder: those
+        # live in their own table, with an owner and no audience.
+        if payload.event_type == "my_reminder":
+            raise PermissionDeniedError("An event cannot be changed into a reminder")
 
         apply_payload(event, payload, payload.time_zone or event.time_zone or org_zone(db, user.org_id))
         apply_change_notes(event, payload)

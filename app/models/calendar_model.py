@@ -48,8 +48,13 @@ class RecurrenceIn(BaseModel):
     until: date
 
 
+OTHER_TYPE_LENGTH = 80
+
+
 class EventIn(BaseModel):
     event_type: str
+    # What an "other" event actually is, in the TPO's words ("Alumni Meet").
+    other_type: str | None = Field(default=None, max_length=OTHER_TYPE_LENGTH)
     title: str = Field(min_length=1, max_length=120)
     company: str | None = None
     event_date: date
@@ -79,6 +84,15 @@ class EventIn(BaseModel):
     def check_by_type(self):
         if self.event_type not in EVENT_TYPES:
             raise ValueError("Unknown event type")
+
+        # "Other" says nothing on its own, so it comes with its own name; any
+        # other type keeps none, so a name left from a switched type is dropped.
+        if self.event_type == "other":
+            self.other_type = (self.other_type or "").strip()
+            if not self.other_type:
+                raise ValueError("Specify the event type")
+        else:
+            self.other_type = None
 
         if self.event_type in TIMED_TYPES:
             if not self.start_time or not self.end_time:
@@ -192,6 +206,7 @@ class FeedSettingsOut(FeedSettingsIn):
 class EventOut(BaseModel):
     event_id: str
     event_type: str
+    other_type: str | None = None
     title: str
     company: str | None
     event_date: date
