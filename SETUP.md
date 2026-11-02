@@ -41,7 +41,7 @@ make run                           # API chalu
 ```
 
 > Code pull kiya? Pehle `make db-up` — nayi migration ho sakti hai (abhi ki
-> aakhri: `a1c4e7f2b905` — `calendar_event.other_type`). Bina iske API DB error degi.
+> aakhri: `c9e1b3d5f7a2` — sync range ke columns `calendar_user.feed_*_mode / _from / _to`). Bina iske API DB error degi.
 
 Check: `curl http://127.0.0.1:8001/health` → `{"status":"ok","database":"up"}`
 

@@ -32,5 +32,10 @@ class CalendarUser(Base):
     feed_deadlines = Column(Boolean, nullable=True)
     feed_reminders = Column(Boolean, nullable=True)
     feed_cancelled = Column(Boolean, nullable=True)
+    # How each end of the range is set: "days" (the counts above), "all", or "date" (a fixed day below).
+    feed_past_mode = columns.text(10)
+    feed_past_from = columns.day(nullable=True)
+    feed_future_mode = columns.text(10)
+    feed_future_to = columns.day(nullable=True)
     created_at = columns.created_at()
     updated_at = columns.updated_at()

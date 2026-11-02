@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import time
+from datetime import date, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.auth.users import SignedInUser
 from app.conf import FEED_FUTURE_DAYS, FEED_PAST_DAYS
 from app.db.models import CalendarSettings, CalendarUser
-from app.models.calendar_model import FeedSettingsIn, FeedSettingsOut
+from app.models.calendar_model import FEED_ALL_DAYS, FeedSettingsIn, FeedSettingsOut
 from app.models.settings_model import SettingsIn, SettingsOut
 from app.services.clock import DEFAULT_ZONE
 
@@ -149,7 +149,32 @@ def feed_settings(db: Session, user: SignedInUser) -> FeedSettingsOut:
         deadlines=own("feed_deadlines", True),
         reminders=own("feed_reminders", True),
         cancelled=own("feed_cancelled", college.feed_show_cancelled),
+        past_mode=own("feed_past_mode", "days"),
+        past_from=own("feed_past_from", None),
+        future_mode=own("feed_future_mode", "days"),
+        future_to=own("feed_future_to", None),
     )
+
+
+def feed_window(chosen: FeedSettingsOut, today: date) -> tuple[date, date]:
+    """The first and last day the feed carries. "All" and a fixed date never reach past FEED_ALL_DAYS."""
+    furthest = timedelta(days=FEED_ALL_DAYS)
+
+    if chosen.past_mode == "all":
+        start = today - furthest
+    elif chosen.past_mode == "date" and chosen.past_from:
+        start = max(chosen.past_from, today - furthest)
+    else:
+        start = today - timedelta(days=chosen.past_days)
+
+    if chosen.future_mode == "all":
+        end = today + furthest
+    elif chosen.future_mode == "date" and chosen.future_to:
+        end = min(chosen.future_to, today + furthest)
+    else:
+        end = today + timedelta(days=chosen.future_days)
+
+    return start, end
 
 
 def save_feed_settings(db: Session, user: SignedInUser, payload: FeedSettingsIn) -> FeedSettingsOut:
@@ -170,6 +195,10 @@ def save_feed_settings(db: Session, user: SignedInUser, payload: FeedSettingsIn)
         row.feed_deadlines = mine(payload.deadlines, True)
         row.feed_reminders = mine(payload.reminders, True)
         row.feed_cancelled = mine(payload.cancelled, college.feed_show_cancelled)
+        row.feed_past_mode = mine(payload.past_mode, "days")
+        row.feed_past_from = payload.past_from
+        row.feed_future_mode = mine(payload.future_mode, "days")
+        row.feed_future_to = payload.future_to
         db.commit()
 
         return feed_settings(db, user)

@@ -210,8 +210,8 @@ docker exec campus-calendar-db psql -U calendar -d campus_calendar \
 ## Migrations ke baare me
 
 Schema **Alembic** sambhalta hai (`setup/migrations/versions/`), `create_all` nahi.
-Aakhri (head) migration `a1c4e7f2b905_other_event_type_name` hai —
-`calendar_event.other_type` jodti hai (`b8f6d0e2a475` ke baad). Pull ke baad
+Aakhri (head) migration `c9e1b3d5f7a2_feed_range_modes` hai —
+`calendar_user` me sync range ke 4 column jodti hai (`a1c4e7f2b905` ke baad). Pull ke baad
 `make db-up` chalao. Poori zanjeer [`../setup/migrations.md`](../setup/migrations.md) me.
 
 ---

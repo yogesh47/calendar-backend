@@ -1,9 +1,13 @@
+from sqlalchemy import Index
+
 from app.db.models import columns
 from app.db.session import Base
 
 
 class CalendarSettings(Base):
     __tablename__ = "calendar_settings"
+    # One settings row per college (migration d4b2e6f8a031).
+    __table_args__ = (Index("ix_calendar_settings_org", "org_id", unique=True),)
 
     settings_id = columns.primary_key()
     # One row per org. A row without an org is the template new orgs start from.

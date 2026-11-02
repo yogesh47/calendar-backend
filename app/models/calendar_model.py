@@ -190,13 +190,39 @@ class FeedLinkOut(BaseModel):
     url: str
 
 
+# "All" reaches this far either way, so a feed never grows without end.
+FEED_ALL_DAYS = 5 * 365
+
+FeedRangeMode = Literal["days", "all", "date"]
+
+
 class FeedSettingsIn(BaseModel):
     past_days: int = Field(ge=0, le=365)
     future_days: int = Field(ge=7, le=730)
+    # Each end: a count of days (above), "all", or a fixed date.
+    past_mode: FeedRangeMode = "days"
+    past_from: date | None = None
+    future_mode: FeedRangeMode = "days"
+    future_to: date | None = None
     events: bool
     deadlines: bool
     reminders: bool
     cancelled: bool
+
+    @model_validator(mode="after")
+    def check_range(self) -> "FeedSettingsIn":
+        if self.past_mode == "date" and not self.past_from:
+            raise ValueError("Pick the date to sync from")
+        if self.future_mode == "date" and not self.future_to:
+            raise ValueError("Pick the date to sync to")
+        if self.past_mode != "date":
+            self.past_from = None
+        if self.future_mode != "date":
+            self.future_to = None
+        if self.past_from and self.future_to and self.future_to < self.past_from:
+            raise ValueError("The end date cannot be before the start date")
+
+        return self
 
 
 class FeedSettingsOut(FeedSettingsIn):

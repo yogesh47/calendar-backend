@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
@@ -171,9 +171,8 @@ def feed(token: str, db: Annotated[Session, Depends(get_db)]) -> Response:
 
     chosen = settings_service.feed_settings(db, user)
     today = local_date(datetime.now(timezone.utc), calendar_service.viewer_zone(db, user))  # noqa: UP017
-    items = calendar_service.list_items(
-        db, user, today - timedelta(days=chosen.past_days), today + timedelta(days=chosen.future_days)
-    )
+    start, end = settings_service.feed_window(chosen, today)
+    items = calendar_service.list_items(db, user, start, end)
     kinds = {kind for kind in ("events", "deadlines", "reminders") if getattr(chosen, kind)}
     body = ics.build(items, "Campus Calendar", show_cancelled=chosen.cancelled, kinds=kinds)
 

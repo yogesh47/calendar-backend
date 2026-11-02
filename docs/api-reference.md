@@ -219,6 +219,31 @@ Ek notification padhi gayi (tap par).
 
 > Nudges kab bante aur kab jaate hain — [`flows/nudges.md`](flows/nudges.md).
 
+### Calendar sync (Google / Outlook)
+
+| Endpoint | Kya |
+|---|---|
+| `GET /calendar/feed/link` | User ka private `.ics` link (`{ url }`), token ke saath |
+| `GET /calendar/feed/settings` | Is user ki sync choice: college ke default par uski apni |
+| `PUT /calendar/feed/settings` | Choice save; jo college ke default jaisa hai wo save nahi hota, taaki admin ka badlav use bhi mile |
+| `GET /calendar/feed.ics?token=…` | Feed khud. Google / Outlook ise kuch ghanton me dobara padhte hain |
+
+Settings ka body:
+
+```json
+{
+  "past_days": 30, "future_days": 365,
+  "past_mode": "days", "past_from": null,
+  "future_mode": "date", "future_to": "2027-04-23",
+  "events": true, "deadlines": true, "reminders": true, "cancelled": true
+}
+```
+
+- `past_mode` / `future_mode`: `days` (aaj se `past_days` / `future_days` din, roz aage khisakta hai), `all` (sab, 5 saal tak), ya `date` (fixed din).
+- UI me ek toggle hai: **All events** = dono taraf `all`; **Custom** = From / To date (default me `days`, koi date badli to `date`).
+- `date` par date zaroori hai, aur aakhri din pehle din se pehle nahi ho sakta, warna **422**. `date` na ho to `past_from` / `future_to` `null` ho jaate hain.
+- `future_mode = date` ke baad us din ke baad ke naye events sync nahi hote. UI ek line me ye batata hai.
+
 ### Apply calendar me nahi hota
 Job par apply **Student backend (Jobs service)** ka kaam hai, calendar ka nahi —
 isliye calendar me apply / withdraw ki koi API nahi hai. Calendar sirf padhta hai

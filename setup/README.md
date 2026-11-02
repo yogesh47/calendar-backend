@@ -58,11 +58,11 @@ make db-up
 ```
 
 Ye database banata hai, saari Alembic migrations (`initial setup` se head
-`a1c4e7f2b905` tak) chala kar tables/columns banata hai, aur settings ki ek
+`c9e1b3d5f7a2` tak) chala kar tables/columns banata hai, aur settings ki ek
 default row daalta hai.
 
 > DB pehle se hai par code pull kiya jisme nayi migration hai (jaise
-> `a1c4e7f2b905_other_event_type_name` — `calendar_event.other_type`)? Tab bhi
+> `c9e1b3d5f7a2_feed_range_modes` — sync range ke columns)? Tab bhi
 > bas `make db-up` — sirf pending migrations chalti hain, data waisa hi rehta hai.
 
 Sab kuch mitana ho:

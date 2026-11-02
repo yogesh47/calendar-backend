@@ -39,7 +39,8 @@ setup/
         ├── f6d4a8b0c253_current_zone_names.py
         ├── a7e5c9d1f364_feed_settings.py
         ├── b8f6d0e2a475_user_feed_settings.py
-        └── a1c4e7f2b905_other_event_type_name.py
+        ├── a1c4e7f2b905_other_event_type_name.py
+        └── c9e1b3d5f7a2_feed_range_modes.py
 ```
 
 `env.py` do cheezein deta hai: `app.conf` se **DATABASE_URL**, aur
@@ -64,12 +65,17 @@ Har file apne se pehli wali ka naam rakhti hai:
          f6d4a8b0c253   current zone names
          a7e5c9d1f364   calendar-sync feed settings (org)
          b8f6d0e2a475   user ki apni feed settings
-         a1c4e7f2b905   calendar_event.other_type ("Other" event ka naam) ← head
+         a1c4e7f2b905   calendar_event.other_type ("Other" event ka naam)
+         c9e1b3d5f7a2   sync range: "All events" ya custom From / To date ← head
 ```
 
-> Code me naya migration aaya ho (jaise `a1c4e7f2b905` — `other_type` column),
-> to pull ke baad **`make db-up`** chala do. Iske bina API `other_type` column
-> dhoondhegi aur event padhte/banate waqt DB error aayega.
+> Code me naya migration aaya ho (jaise `c9e1b3d5f7a2` — sync range ke columns),
+> to pull ke baad **`make db-up`** chala do. Iske bina API naye column
+> dhoondhegi aur DB error aayega.
+>
+> Saari 12 migrations upar (`head`) aur neeche (`base`) dono taraf chalti hain,
+> aur `alembic check` me model aur migrations ek jaise hain (2 Nov 2026 ko check kiya,
+> ek alag temporary DB par).
 
 - **head** = aakhri migration
 - Database khud yaad rakhta hai wo kis revision par hai (`alembic_version` table me)
