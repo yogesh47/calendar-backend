@@ -61,7 +61,8 @@ FIELD_NAMES = {
 MODEL_FIELD_HINTS = (
     ("Unknown event type", "event_type"),
     ("Specify the event type", "other_type"),
-    ("Start and end time are required", "start_time"),
+    ("Start time is required", "start_time"),
+    ("End time is required", "end_time"),
     ("End must be after the start", "end_time"),
     ("Mode is required", "mode"),
     ("Venue is required", "venue"),

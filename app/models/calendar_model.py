@@ -95,8 +95,11 @@ class EventIn(BaseModel):
             self.other_type = None
 
         if self.event_type in TIMED_TYPES:
-            if not self.start_time or not self.end_time:
-                raise ValueError("Start and end time are required for this event type")
+            # One message per missing field, so the form marks the box that is actually empty.
+            if not self.start_time:
+                raise ValueError("Start time is required for this event type")
+            if not self.end_time:
+                raise ValueError("End time is required for this event type")
             end_day = self.end_date or self.event_date
             if datetime.combine(end_day, self.end_time) <= datetime.combine(self.event_date, self.start_time):
                 raise ValueError("End must be after the start")

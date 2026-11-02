@@ -15,7 +15,11 @@ docs/
 ├── timezone.md          time zones: kya bhejna hai, kahan save, nudge kis clock par
 ├── external-events-design.md  external events (student ke apne / linked / auto) ka design — proposal, abhi bana nahi
 └── flows/
+    ├── create-event-remember-points.md  yaad rakhne wale points: pehle kya, phir kya (waterfall order)
+    ├── create-event-simple.md  sabse simple: event fire kiya to role check, data, nudge, notification, timeline
     ├── create-event.md  event banne ka pura flow, line by line
+    ├── create-event-waterfall.md  event banne ka waterfall: kadam, files, tables, mota-mota matlab
+    ├── create-event-code.md  event banne ka poora code, block-wise; har line: kya karti hai, kya milta hai
     ├── nudges.md        nudge kab, kahan se, kaise jaata hai
     └── tpo-event.md     TPO kya karta hai, kya hota hai
 ```
