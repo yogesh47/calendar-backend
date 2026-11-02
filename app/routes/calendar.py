@@ -12,7 +12,6 @@ from app.conf import PUBLIC_API_URL
 from app.db.session import SessionLocal, get_db
 from app.exceptions import AuthenticationError, InvalidInputError, PermissionDeniedError
 from app.models.calendar_model import (
-    ApplicationOut,
     AudienceCountIn,
     AudienceCountOut,
     AudienceSetIn,
@@ -276,31 +275,6 @@ def read_all_notifications(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     calendar_service.mark_all_seen(db, user)
-
-
-# Demo "apply" — the Jobs service owns this in the real app. Applying takes the deadline
-# off the student's calendar, along with their pending nudges for it.
-@router.post("/jobs/{job_id}/apply", status_code=status.HTTP_201_CREATED)
-def apply_to_job(
-    job_id: str,
-    user: Annotated[SignedInUser, Depends(require_role(STUDENT))],
-    db: Annotated[Session, Depends(get_db)],
-) -> ApplicationOut:
-    entry = calendar_service.apply_to_job(db, user, job_id)
-    live_stream.publish(user.org_id, "application")
-
-    return entry
-
-
-# Withdrawing the application brings the deadline back.
-@router.delete("/jobs/{job_id}/apply", status_code=status.HTTP_204_NO_CONTENT)
-def withdraw_application(
-    job_id: str,
-    user: Annotated[SignedInUser, Depends(require_role(STUDENT))],
-    db: Annotated[Session, Depends(get_db)],
-) -> None:
-    calendar_service.withdraw_application(db, user, job_id)
-    live_stream.publish(user.org_id, "application")
 
 
 # The mobile app registers its push token here so nudges can reach the phone.

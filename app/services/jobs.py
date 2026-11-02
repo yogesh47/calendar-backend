@@ -60,7 +60,8 @@ CAMPUS_JOBS = (
     ),
 )
 
-# Demo applications — in the real app these come from the Jobs service.
+# Who applied where. Applying happens in the Student backend, not in the calendar;
+# the real Jobs service fills this. In the POC it stays empty.
 APPLICATIONS: list[JobApplication] = []
 
 
@@ -130,24 +131,3 @@ def deadline_counts(db: Session, org_id: str, job: CampusJob) -> dict[str, int]:
         "applied": len(applied),
         "not_applied": len(eligible) - len(applied),
     }
-
-
-def apply_to(job_id: str, student_id: str) -> JobApplication:
-    import uuid
-
-    existing = next(
-        (entry for entry in APPLICATIONS if entry.job_id == job_id and entry.student_id == student_id), None
-    )
-    if existing:
-        return existing
-
-    entry = JobApplication(application_id=str(uuid.uuid4()), job_id=job_id, student_id=student_id)
-    APPLICATIONS.append(entry)
-
-    return entry
-
-
-def withdraw(job_id: str, student_id: str) -> None:
-    APPLICATIONS[:] = [
-        entry for entry in APPLICATIONS if not (entry.job_id == job_id and entry.student_id == student_id)
-    ]

@@ -147,21 +147,6 @@ def _add(
     )
 
 
-# The student applied, so drop their pending nudges for that job.
-def drop_for_job(db: Session, job_id: str, student_id: str) -> None:
-    try:
-        db.query(CalendarNudge).filter(
-            CalendarNudge.item_id == uuid.UUID(job_id),
-            CalendarNudge.student_id == uuid.UUID(student_id),
-            CalendarNudge.status == "scheduled",
-        ).delete()
-        db.commit()
-    except Exception as err:
-        LOGGER.error("drop_for_job failed: %s", err)
-        db.rollback()
-        raise
-
-
 def _drop_scheduled(db: Session, item_id) -> set[tuple[str, str]]:
     """Drops an item's pending nudges and says which were already due but not yet sent."""
     pending = db.query(CalendarNudge).filter(

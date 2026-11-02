@@ -248,12 +248,6 @@ class EventOut(BaseModel):
     time_zone: str | None = None
 
 
-class ApplicationOut(BaseModel):
-    application_id: str
-    job_id: str
-    application_status: str
-
-
 class DeviceIn(BaseModel):
     token: str = Field(min_length=8, max_length=255)
     platform: Literal["android", "ios", "web"]

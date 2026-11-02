@@ -15,7 +15,6 @@ from app.db.models import (
 )
 from app.exceptions import InvalidInputError, NotExistError, PermissionDeniedError
 from app.models.calendar_model import (
-    ApplicationOut,
     AudienceIn,
     EventIn,
     EventOut,
@@ -26,8 +25,6 @@ from app.services import deadlines, nudges, recurrence
 from app.services.clock import local_date, local_time, to_utc, zone_label
 from app.services.companies import company_id_of, company_name_of
 from app.services.ids import as_uuid
-from app.services.jobs import apply_to, job_by_id
-from app.services.jobs import withdraw as withdraw_from
 from app.services.settings_service import org_zone
 from app.services.students import count_audience, matching_student_ids
 
@@ -277,24 +274,6 @@ def list_items(
 
 
 # Applying also clears that student's pending deadline nudges.
-def apply_to_job(db: Session, user: SignedInUser, job_id: str) -> ApplicationOut:
-    job = job_by_id(job_id)
-    if not job:
-        raise NotExistError("Job not found")
-
-    entry = apply_to(job_id, user.user_id)
-    nudges.drop_for_job(db, job_id, user.user_id)
-
-    return ApplicationOut(
-        application_id=entry.application_id, job_id=entry.job_id, application_status=entry.application_status
-    )
-
-
-def withdraw_application(db: Session, user: SignedInUser, job_id: str) -> None:
-    withdraw_from(job_id, user.user_id)
-    nudges.schedule_deadlines(db, user.org_id)
-
-
 # The mobile "Coming Up" card: the next few items the viewer still cares about.
 def coming_up(db: Session, viewer: SignedInUser, limit: int = 3) -> list[EventOut]:
     today = local_date(_now(), viewer_zone(db, viewer))

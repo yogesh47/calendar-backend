@@ -219,10 +219,12 @@ Ek notification padhi gayi (tap par).
 
 > Nudges kab bante aur kab jaate hain — [`flows/nudges.md`](flows/nudges.md).
 
-### `POST /calendar/jobs/{job_id}/apply` → **201** · `DELETE` → **204**
-Demo apply / withdraw (sirf `student`). Apply karte hi us job ki deadline student
-ke calendar se hat jaati hai aur uske **pending deadline nudges** bhi — BRD
-FR-CAL-08 / FR-CAL-26 yahi kehte hain.
+### Apply calendar me nahi hota
+Job par apply **Student backend (Jobs service)** ka kaam hai, calendar ka nahi —
+isliye calendar me apply / withdraw ki koi API nahi hai. Calendar sirf padhta hai
+ki student ne apply kiya ya nahi (`jobs.py` → `has_applied()`): apply kiya ho to
+us job ki deadline student ke calendar se hat jaati hai aur deadline nudges bhejte
+waqt drop ho jaate hain (BRD FR-CAL-08 / FR-CAL-26). POC me ye list khaali hai.
 
 ### Jobs service se kya-kya chahiye
 
