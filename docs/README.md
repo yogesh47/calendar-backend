@@ -13,6 +13,7 @@ docs/
 ├── libraries.md         kaun si library, kyun aur kahan
 ├── credentials.md       logins, DB, ports
 ├── timezone.md          time zones: kya bhejna hai, kahan save, nudge kis clock par
+├── external-events-design.md  external events (student ke apne / linked / auto) ka design — proposal, abhi bana nahi
 └── flows/
     ├── create-event.md  event banne ka pura flow, line by line
     ├── nudges.md        nudge kab, kahan se, kaise jaata hai
